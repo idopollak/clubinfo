@@ -1,0 +1,1888 @@
+/**
+ * ====================================================================
+ * CLUB INFORMATION MANAGEMENT SYSTEM - DATABASE IMPLEMENTATION
+ * ====================================================================
+ * 
+ * Version: 2.0
+ * Created: December 2024
+ * Platform: Google Apps Script (Google Sheets)
+ * 
+ * DESCRIPTION:
+ * This script implements a database-driven approach for managing club information
+ * with separate data storage and presentation layers, plus a Script Properties
+ * service layer for fast data access.
+ * 
+ * ARCHITECTURE:
+ * 1. ClubData_DB (Database Tab)
+ *    - BasicInfo table: Core club information
+ *    - CourtTypes table: Court type and count data
+ *    - OperatingHours table: Structured hours with separate open/close times
+ *    
+ * 2. ClubInfo (Presentation Tab)
+ *    - User-friendly formatted view of the data
+ *    - Read-only, generated from database
+ *    
+ * 3. ChangeLog (Audit Tab)
+ *    - Tracks all changes with timestamp
+ *    - Shows field, old value, and new value
+ * 
+ * 4. Script Properties Service (ClubDataService)
+ *    - Fast cached access to club data
+ *    - Auto-refreshes on data changes
+ *    - Weekly maintenance trigger
+ *    - Service ID based on spreadsheet name (e.g., "Westside Tennis Club" → "WTC")
+ * 
+ * FEATURES:
+ * - Multiple court types support
+ * - Flexible operating hours with breaks
+ * - Clean time format (HH:MM) for easy parsing
+ * - Edit functionality with data pre-population
+ * - Automatic change tracking
+ * - Separation of data and presentation layers
+ * - Script Properties service for fast access
+ * 
+ * DATA ACCESS FOR OTHER SCRIPTS:
+ * - const clubName = ClubDataService.get('basic_info.clubName');
+ * - const mondayHours = ClubDataService.get('operating_hours.Monday');
+ * - const tennisCourts = ClubDataService.get('court_types.Tennis');
+ * - const weeklyHours = ClubDataService.get('computed.weeklyHours');
+ * 
+ * SERVICE MANAGEMENT:
+ * - ClubDataService.initialize() - First time setup
+ * - ClubDataService.reload() - Refresh from database
+ * - ClubDataService.reset() - Clear service data
+ * - ClubDataService.isActive() - Check if service is running
+ * - ClubDataService.getStatus() - Get detailed status
+ * 
+ * USAGE:
+ * 1. Run showClubSetupForm() to create/edit club information
+ * 2. Data is stored in ClubData_DB tab
+ * 3. ClubInfo tab shows formatted presentation
+ * 4. ChangeLog tracks all modifications
+ * 5. Script Properties service provides fast access for other scripts
+ * 
+ * ====================================================================
+ */
+
+// ====================================================================
+// CONFIGURATION
+// ====================================================================
+
+const EXTERNAL_SPREADSHEET_ID = '1RM8CIt9sz9Eajo5bjGCTDy9FvMi1oSURH-nHDRw-Fns';
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const COURT_TYPES = ['Tennis', 'Padel', 'Pickleball', 'Squash', 'Football', 'Basketball', 'Other'];
+
+// Database sheet names
+const DB_SHEET_NAME = 'ClubData_DB';
+const PRESENTATION_SHEET_NAME = 'ClubInfo';
+const CHANGELOG_SHEET_NAME = 'ChangeLog';
+
+// ====================================================================
+// MENU INITIALIZATION (COMMENTED OUT FOR DEVELOPMENT)
+// ====================================================================
+
+/**
+ * Creates menu items in Google Sheets (commented out for development)
+ */
+// function onOpen() {
+//   console.log('🟢 [onOpen] Starting menu creation');
+//   try {
+//     const menu = SpreadsheetApp.getUi().createMenu('Club Management')
+//       .addItem('Setup/Edit Club Information', 'showClubSetupForm')
+//       .addSeparator()
+//       .addItem('Refresh Club Names Cache', 'refreshClubNamesCache')
+//       .addItem('View Change History', 'showChangeHistory')
+//       .addSeparator()
+//       .addSubMenu(SpreadsheetApp.getUi().createMenu('Service Management')
+//         .addItem('View Service Status', 'showServiceStatus')
+//         .addItem('Reload Service Data', 'reloadServiceData')
+//         .addItem('Reset Service', 'resetServiceData')
+//         .addItem('View Service Log', 'viewServiceLog'))
+//       .addSeparator()
+//       .addItem('About', 'showAbout');
+//     menu.addToUi();
+//     console.log('✅ [onOpen] Menu created successfully');
+//   } catch (error) {
+//     console.error('❌ [onOpen] Failed:', error);
+//     throw error;
+//   }
+// }
+
+// ====================================================================
+// MAIN FORM LAUNCHER
+// ====================================================================
+
+/**
+ * Shows the club setup form for create/edit operations
+ */
+function showClubSetupForm() {
+  console.log('🟢 [showClubSetupForm] Starting form initialization');
+  
+  try {
+    // Step 1: Get spreadsheet name for auto-population
+    console.log('📝 [showClubSetupForm] Step 1: Getting spreadsheet name');
+    const spreadsheetNameData = getSpreadsheetName();
+    console.log('✅ [showClubSetupForm] Spreadsheet name:', spreadsheetNameData);
+    
+    // Step 2: Get club names from external database
+    console.log('📝 [showClubSetupForm] Step 2: Fetching club names');
+    const clubNamesData = getClubNames();
+    console.log('✅ [showClubSetupForm] Club names loaded:', clubNamesData?.clubs?.length || 0);
+    
+    // Step 3: Check if data exists (edit mode)
+    console.log('📝 [showClubSetupForm] Step 3: Checking for existing data');
+    const existingData = loadExistingDataFromDB();
+    const isEditMode = existingData !== null;
+    console.log('✅ [showClubSetupForm] Mode:', isEditMode ? 'EDIT' : 'CREATE');
+    
+    // Step 4: Create HTML template
+    console.log('📝 [showClubSetupForm] Step 4: Creating HTML template');
+    const htmlTemplate = HtmlService.createTemplateFromFile('ClubDatabaseForm');
+    
+    // Step 5: Pass data to template
+    htmlTemplate.spreadsheetNameData = spreadsheetNameData;
+    htmlTemplate.clubNamesData = clubNamesData;
+    htmlTemplate.existingData = existingData;
+    htmlTemplate.courtTypes = COURT_TYPES;
+    htmlTemplate.isEditMode = isEditMode;
+    
+    // Step 6: Attempt server-side club name matching (only for new clubs)
+    if (!isEditMode) {
+      console.log('📝 [showClubSetupForm] Step 5: Attempting club name match');
+      let matchedClubName = matchClubName(spreadsheetNameData, clubNamesData);
+      htmlTemplate.matchedClubName = matchedClubName;
+      console.log('✅ [showClubSetupForm] Matched club name:', matchedClubName || 'No match');
+    }
+    
+    // Step 7: Render and show dialog
+    console.log('📝 [showClubSetupForm] Step 6: Rendering dialog');
+    const html = htmlTemplate.evaluate()
+      .setWidth(850)
+      .setHeight(750)
+      .setTitle(isEditMode ? 'Edit Club Information' : 'Setup Club Information');
+    
+    SpreadsheetApp.getUi().showModalDialog(html, isEditMode ? 'Edit Club Information' : 'Setup Club Information');
+    console.log('✅ [showClubSetupForm] Dialog displayed successfully');
+    
+  } catch (error) {
+    console.error('❌ [showClubSetupForm] Critical error:', error);
+    SpreadsheetApp.getUi().alert(`Error: ${error.message}`);
+    throw error;
+  }
+}
+
+// ====================================================================
+// DATABASE OPERATIONS
+// ====================================================================
+
+/**
+ * Initialize database structure if it doesn't exist
+ */
+function initializeDatabase() {
+  console.log('🟢 [initializeDatabase] Checking database structure');
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Create ClubData_DB sheet if it doesn't exist
+  let dbSheet = ss.getSheetByName(DB_SHEET_NAME);
+  if (!dbSheet) {
+    console.log('📝 [initializeDatabase] Creating database sheet');
+    dbSheet = ss.insertSheet(DB_SHEET_NAME);
+    
+    // Set up the structure
+    dbSheet.getRange('A1').setValue('BASIC INFO TABLE');
+    dbSheet.getRange('A1:B1').merge().setBackground('#4a86e8').setFontColor('white').setFontWeight('bold');
+    
+    dbSheet.getRange('A2').setValue('Key');
+    dbSheet.getRange('B2').setValue('Value');
+    dbSheet.getRange('A2:B2').setFontWeight('bold').setBackground('#cfe2f3');
+    
+    // Basic info keys
+    dbSheet.getRange('A3').setValue('ClubName');
+    dbSheet.getRange('A4').setValue('LastUpdated');
+    
+    // Court Types table
+    dbSheet.getRange('D1').setValue('COURT TYPES TABLE');
+    dbSheet.getRange('D1:E1').merge().setBackground('#6aa84f').setFontColor('white').setFontWeight('bold');
+    
+    dbSheet.getRange('D2').setValue('CourtType');
+    dbSheet.getRange('E2').setValue('Count');
+    dbSheet.getRange('D2:E2').setFontWeight('bold').setBackground('#d9ead3');
+    
+    // Operating Hours table
+    dbSheet.getRange('G1').setValue('OPERATING HOURS TABLE');
+    dbSheet.getRange('G1:L1').merge().setBackground('#e69138').setFontColor('white').setFontWeight('bold');
+    
+    dbSheet.getRange('G2').setValue('Day');
+    dbSheet.getRange('H2').setValue('Block');
+    dbSheet.getRange('I2').setValue('OpenTime');
+    dbSheet.getRange('J2').setValue('CloseTime');
+    dbSheet.getRange('K2').setValue('TotalHours');
+    dbSheet.getRange('L2').setValue('Status');
+    dbSheet.getRange('G2:L2').setFontWeight('bold').setBackground('#fce5cd');
+    
+    console.log('✅ [initializeDatabase] Database structure created');
+  }
+  
+  // Create ChangeLog sheet if it doesn't exist
+  let changeLogSheet = ss.getSheetByName(CHANGELOG_SHEET_NAME);
+  if (!changeLogSheet) {
+    console.log('📝 [initializeDatabase] Creating change log sheet');
+    changeLogSheet = ss.insertSheet(CHANGELOG_SHEET_NAME);
+    
+    changeLogSheet.getRange('A1').setValue('CHANGE LOG');
+    changeLogSheet.getRange('A1:D1').merge().setBackground('#cc0000').setFontColor('white').setFontWeight('bold');
+    
+    changeLogSheet.getRange('A2').setValue('Date/Time');
+    changeLogSheet.getRange('B2').setValue('Field Changed');
+    changeLogSheet.getRange('C2').setValue('Old Value');
+    changeLogSheet.getRange('D2').setValue('New Value');
+    changeLogSheet.getRange('A2:D2').setFontWeight('bold').setBackground('#f4cccc');
+    
+    console.log('✅ [initializeDatabase] Change log structure created');
+  }
+  
+  return { dbSheet, changeLogSheet };
+}
+
+/**
+ * Load existing data from database
+ */
+function loadExistingDataFromDB() {
+  console.log('🔍 [loadExistingDataFromDB] Loading data from database');
+  
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const dbSheet = ss.getSheetByName(DB_SHEET_NAME);
+    
+    if (!dbSheet) {
+      console.log('✅ [loadExistingDataFromDB] No database found - new installation');
+      return null;
+    }
+    
+    // Check if there's actual data
+    const clubName = dbSheet.getRange('B3').getValue();
+    if (!clubName) {
+      console.log('✅ [loadExistingDataFromDB] Database exists but no data');
+      return null;
+    }
+    
+    const data = {
+      clubName: clubName,
+      lastUpdated: dbSheet.getRange('B4').getValue(),
+      courtTypes: [],
+      operatingHours: {}
+    };
+    
+    // Load court types
+    console.log('📝 [loadExistingDataFromDB] Loading court types');
+    const courtData = dbSheet.getRange('D3:E20').getValues();
+    for (const row of courtData) {
+      if (row[0] && row[1]) {
+        data.courtTypes.push({
+          type: row[0],
+          count: row[1]
+        });
+      }
+    }
+    console.log(`✅ [loadExistingDataFromDB] Loaded ${data.courtTypes.length} court types`);
+    
+    // Load operating hours
+    console.log('📝 [loadExistingDataFromDB] Loading operating hours');
+    const hoursData = dbSheet.getRange('G3:L100').getValues();
+    
+    for (const row of hoursData) {
+      const [day, block, openTime, closeTime, totalHours, status] = row;
+      if (!day) continue;
+      
+      if (!data.operatingHours[day]) {
+        data.operatingHours[day] = {
+          blocks: [],
+          status: status,
+          totalHours: 0
+        };
+      }
+      
+      if (status === 'CLOSED') {
+        data.operatingHours[day].isOpen = false;
+      } else if (status === 'COPY') {
+        data.operatingHours[day].copiedFrom = block; // Block contains the source day
+      } else if (status === 'ACTIVE' && openTime && closeTime) {
+        data.operatingHours[day].isOpen = true;
+        data.operatingHours[day].blocks.push({
+          start: formatTimeValue(openTime),
+          end: formatTimeValue(closeTime)
+        });
+      }
+      
+      data.operatingHours[day].totalHours = totalHours || 0;
+    }
+    
+    console.log('✅ [loadExistingDataFromDB] Data loaded successfully');
+    return data;
+    
+  } catch (error) {
+    console.error('❌ [loadExistingDataFromDB] Error loading data:', error);
+    return null;
+  }
+}
+
+/**
+ * Process and save club information to database
+ */
+function processClubData(formData) {
+  console.log('🟢 [processClubData] Starting data processing');
+  console.log('📊 [processClubData] Received data:', JSON.stringify(formData));
+  
+  try {
+    // Validate the form data
+    console.log('📝 [processClubData] Validating data');
+    const validation = validateFormData(formData);
+    if (!validation.valid) {
+      console.error('❌ [processClubData] Validation failed:', validation.errors);
+      return {
+        success: false,
+        message: 'Validation Error:\n' + validation.errors.join('\n')
+      };
+    }
+    console.log('✅ [processClubData] Validation passed');
+    
+    // Initialize database if needed
+    console.log('📝 [processClubData] Initializing database');
+    const { dbSheet, changeLogSheet } = initializeDatabase();
+    
+    // Get existing data for comparison
+    console.log('📝 [processClubData] Loading existing data for comparison');
+    const existingData = loadExistingDataFromDB();
+    
+    // Process the data
+    console.log('📝 [processClubData] Processing operating hours');
+    const processedData = processOperatingHoursData(formData);
+    
+    // Write to database
+    console.log('📝 [processClubData] Writing to database');
+    writeToDatabase(dbSheet, formData, processedData);
+    
+    // Track changes
+    console.log('📝 [processClubData] Tracking changes');
+    trackChanges(changeLogSheet, existingData, formData, processedData);
+    
+    // Update presentation layer
+    console.log('📝 [processClubData] Updating presentation');
+    updatePresentationLayer(formData, processedData);
+    
+    console.log('✅ [processClubData] Processing completed successfully');
+    
+    return {
+      success: true,
+      message: existingData ? 'Club information updated successfully!' : 'Club information created successfully!'
+    };
+    
+  } catch (error) {
+    console.error('❌ [processClubData] Processing error:', error);
+    return {
+      success: false,
+      message: 'Error: ' + error.toString()
+    };
+  }
+}
+
+/**
+ * Write data to database tables
+ */
+function writeToDatabase(dbSheet, formData, processedData) {
+  console.log('📝 [writeToDatabase] Writing to database tables');
+  
+  // Clear existing data (except headers)
+  console.log('🧹 [writeToDatabase] Clearing existing data');
+  dbSheet.getRange('B3:B20').clearContent(); // Basic info values
+  dbSheet.getRange('D3:E20').clearContent(); // Court types
+  dbSheet.getRange('G3:L200').clearContent(); // Operating hours
+  
+  // Write Basic Info
+  console.log('📝 [writeToDatabase] Writing basic info');
+  dbSheet.getRange('B3').setValue(formData.clubName);
+  dbSheet.getRange('B4').setValue(new Date());
+  
+  // Write Court Types
+  console.log('📝 [writeToDatabase] Writing court types');
+  let courtRow = 3;
+  formData.courtTypes.forEach(court => {
+    dbSheet.getRange(courtRow, 4).setValue(court.type);
+    dbSheet.getRange(courtRow, 5).setValue(court.count);
+    courtRow++;
+  });
+  
+  // Write Operating Hours
+  console.log('📝 [writeToDatabase] Writing operating hours');
+  let hoursRow = 3;
+  
+  DAYS.forEach(day => {
+    const dayData = formData.operatingHours[day];
+    if (!dayData) return;
+    
+    if (!dayData.isOpen) {
+      // Closed day
+      dbSheet.getRange(hoursRow, 7).setValue(day);
+      dbSheet.getRange(hoursRow, 8).setValue('CLOSED');
+      dbSheet.getRange(hoursRow, 11).setValue(0);
+      dbSheet.getRange(hoursRow, 12).setValue('CLOSED');
+      hoursRow++;
+    } else if (dayData.copiedFrom) {
+      // Copied from another day
+      dbSheet.getRange(hoursRow, 7).setValue(day);
+      dbSheet.getRange(hoursRow, 8).setValue(dayData.copiedFrom);
+      dbSheet.getRange(hoursRow, 11).setValue(processedData.dailyHours[day] || 0);
+      dbSheet.getRange(hoursRow, 12).setValue('COPY');
+      hoursRow++;
+    } else if (dayData.blocks && dayData.blocks.length > 0) {
+      // Active blocks
+      dayData.blocks.forEach((block, index) => {
+        dbSheet.getRange(hoursRow, 7).setValue(day);
+        dbSheet.getRange(hoursRow, 8).setValue(index + 1);
+        dbSheet.getRange(hoursRow, 9).setValue(block.start);
+        dbSheet.getRange(hoursRow, 10).setValue(block.end);
+        
+        // Calculate block hours
+        const blockMinutes = timeToMinutes(block.end) - timeToMinutes(block.start);
+        const blockHours = blockMinutes / 60;
+        dbSheet.getRange(hoursRow, 11).setValue(blockHours);
+        dbSheet.getRange(hoursRow, 12).setValue('ACTIVE');
+        hoursRow++;
+      });
+    }
+  });
+  
+  // Format time columns
+  console.log('📝 [writeToDatabase] Formatting time columns');
+  const timeRange = dbSheet.getRange('I3:J' + (hoursRow - 1));
+  timeRange.setNumberFormat('hh:mm');
+  
+  console.log('✅ [writeToDatabase] Database write completed');
+  
+  // Update the Script Properties service after data change
+  updateServiceAfterDataChange();
+}
+
+/**
+ * Track changes in the change log
+ */
+function trackChanges(changeLogSheet, existingData, newData, processedData) {
+  console.log('📝 [trackChanges] Recording changes');
+  
+  const changes = [];
+  const timestamp = new Date();
+  
+  if (!existingData) {
+    // New club setup
+    changes.push(['Initial Setup', '-', 'New Club Created']);
+    changes.push(['Club Name', '-', newData.clubName]);
+    
+    newData.courtTypes.forEach(court => {
+      changes.push([`${court.type} Courts`, '-', court.count]);
+    });
+    
+    DAYS.forEach(day => {
+      if (processedData.operatingSummary[day]) {
+        changes.push([`${day} Hours`, '-', processedData.operatingSummary[day]]);
+      }
+    });
+  } else {
+    // Compare and log changes
+    if (existingData.clubName !== newData.clubName) {
+      changes.push(['Club Name', existingData.clubName, newData.clubName]);
+    }
+    
+    // Compare court types
+    const oldCourts = {};
+    const newCourts = {};
+    
+    existingData.courtTypes.forEach(c => oldCourts[c.type] = c.count);
+    newData.courtTypes.forEach(c => newCourts[c.type] = c.count);
+    
+    // Check for changes
+    const allCourtTypes = new Set([...Object.keys(oldCourts), ...Object.keys(newCourts)]);
+    allCourtTypes.forEach(type => {
+      const oldCount = oldCourts[type] || 0;
+      const newCount = newCourts[type] || 0;
+      
+      if (oldCount !== newCount) {
+        if (oldCount === 0) {
+          changes.push([`${type} Courts`, '-', newCount]);
+        } else if (newCount === 0) {
+          changes.push([`${type} Courts`, oldCount, '-']);
+        } else {
+          changes.push([`${type} Courts`, oldCount, newCount]);
+        }
+      }
+    });
+    
+    // Compare operating hours
+    DAYS.forEach(day => {
+      const oldSummary = getOperatingHoursSummary(existingData.operatingHours[day]);
+      const newSummary = processedData.operatingSummary[day];
+      
+      if (oldSummary !== newSummary) {
+        changes.push([`${day} Hours`, oldSummary || 'Closed', newSummary || 'Closed']);
+      }
+    });
+  }
+  
+  // Write changes to log
+  if (changes.length > 0) {
+    console.log(`📝 [trackChanges] Recording ${changes.length} changes`);
+    const lastRow = changeLogSheet.getLastRow();
+    
+    changes.forEach((change, index) => {
+      const row = lastRow + index + 1;
+      changeLogSheet.getRange(row, 1).setValue(timestamp);
+      changeLogSheet.getRange(row, 2).setValue(change[0]);
+      changeLogSheet.getRange(row, 3).setValue(change[1]);
+      changeLogSheet.getRange(row, 4).setValue(change[2]);
+    });
+    
+    // Format the timestamp column
+    changeLogSheet.getRange(lastRow + 1, 1, changes.length, 1)
+      .setNumberFormat('yyyy-mm-dd hh:mm:ss');
+  }
+  
+  console.log('✅ [trackChanges] Change tracking completed');
+}
+
+/**
+ * Update the presentation layer (ClubInfo sheet)
+ */
+function updatePresentationLayer(formData, processedData) {
+  console.log('📝 [updatePresentationLayer] Updating presentation sheet');
+  
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(PRESENTATION_SHEET_NAME);
+    
+    // Create sheet if it doesn't exist
+    if (!sheet) {
+      console.log('📝 [updatePresentationLayer] Creating presentation sheet');
+      sheet = ss.insertSheet(PRESENTATION_SHEET_NAME);
+    } else {
+      console.log('📝 [updatePresentationLayer] Clearing existing presentation');
+      sheet.clear();
+    }
+    
+    // Set up header
+    sheet.getRange(1, 1).setValue('CLUB INFORMATION');
+    sheet.getRange(1, 1, 1, 8).merge()
+      .setBackground('#1775AF')
+      .setFontColor('white')
+      .setFontSize(16)
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    
+    let row = 3;
+    
+    // Club Details Section
+    sheet.getRange(row, 1).setValue('CLUB DETAILS');
+    sheet.getRange(row, 1, 1, 8).setBackground('#d9ead3').setFontWeight('bold');
+    row++;
+    
+    sheet.getRange(row, 1).setValue('Club Name');
+    sheet.getRange(row, 2, 1, 3).merge().setValue(formData.clubName);
+    sheet.getRange(row, 5).setValue('Total Courts');
+    sheet.getRange(row, 6).setValue(processedData.totalCourts);
+    row += 2;
+    
+    // Court Types Section
+    sheet.getRange(row, 1).setValue('COURT TYPES');
+    sheet.getRange(row, 1, 1, 8).setBackground('#e3f2fd').setFontWeight('bold');
+    row++;
+    
+    formData.courtTypes.forEach(court => {
+      sheet.getRange(row, 1).setValue(court.type);
+      sheet.getRange(row, 2).setValue(court.count + ' courts');
+      row++;
+    });
+    row++;
+    
+    // Operating Hours Section
+    sheet.getRange(row, 1).setValue('OPERATING HOURS');
+    sheet.getRange(row, 1, 1, 8).setBackground('#fff3e0').setFontWeight('bold');
+    row++;
+    
+    // Headers
+    sheet.getRange(row, 1).setValue('Day');
+    sheet.getRange(row, 2, 1, 3).merge().setValue('Operating Hours');
+    sheet.getRange(row, 5).setValue('Total Hours');
+    sheet.getRange(row, 6).setValue('Court Hours');
+    sheet.getRange(row, 1, 1, 6).setFontWeight('bold').setBackground('#efefef');
+    row++;
+    
+    // Daily hours
+    DAYS.forEach(day => {
+      sheet.getRange(row, 1).setValue(day);
+      sheet.getRange(row, 2, 1, 3).merge().setValue(processedData.operatingSummary[day] || 'Closed');
+      sheet.getRange(row, 5).setValue(processedData.dailyHours[day].toFixed(1));
+      sheet.getRange(row, 6).setValue((processedData.dailyHours[day] * processedData.totalCourts).toFixed(1));
+      
+      // Color code closed days
+      if (processedData.dailyHours[day] === 0) {
+        sheet.getRange(row, 1, 1, 6).setBackground('#f5f5f5').setFontColor('#999999');
+      }
+      
+      row++;
+    });
+    
+    // Weekly total
+    row++;
+    sheet.getRange(row, 1).setValue('WEEKLY TOTAL');
+    sheet.getRange(row, 2, 1, 3).merge().setValue('All Days Combined');
+    sheet.getRange(row, 5).setValue(processedData.weeklyHours.toFixed(1));
+    sheet.getRange(row, 6).setValue((processedData.weeklyHours * processedData.totalCourts).toFixed(1));
+    sheet.getRange(row, 1, 1, 6).setFontWeight('bold').setBackground('#ffe0b2');
+    
+    // Add metadata
+    row += 2;
+    sheet.getRange(row, 1).setValue('Last Updated');
+    sheet.getRange(row, 2, 1, 3).merge().setValue(new Date().toLocaleString());
+    sheet.getRange(row, 5).setValue('Data Source');
+    sheet.getRange(row, 6).setValue(DB_SHEET_NAME);
+    sheet.getRange(row, 1, 1, 6).setFontSize(10).setFontColor('#666666');
+    
+    // Add note about editing
+    row += 2;
+    sheet.getRange(row, 1, 1, 6).merge()
+      .setValue('Note: This is a read-only view. To edit, use Club Management > Setup/Edit Club Information')
+      .setFontStyle('italic')
+      .setFontColor('#666666');
+    
+    // Format columns
+    sheet.autoResizeColumns(1, 8);
+    sheet.setColumnWidth(1, 120);
+    sheet.setColumnWidth(2, 200);
+    
+    console.log('✅ [updatePresentationLayer] Presentation updated successfully');
+    
+  } catch (error) {
+    console.error('❌ [updatePresentationLayer] Error updating presentation:', error);
+    throw error;
+  }
+}
+
+// ====================================================================
+// UTILITY FUNCTIONS
+// ====================================================================
+
+/**
+ * Validate form data
+ */
+function validateFormData(formData) {
+  console.log('🔍 [validateFormData] Starting validation');
+  const errors = [];
+  
+  // Validate club name
+  if (!formData.clubName || formData.clubName.trim() === '') {
+    errors.push('Club name is required');
+  }
+  
+  // Validate court types
+  if (!formData.courtTypes || formData.courtTypes.length === 0) {
+    errors.push('At least one court type is required');
+  } else {
+    formData.courtTypes.forEach((court, index) => {
+      if (!court.type) errors.push(`Court ${index + 1}: Type is required`);
+      if (!court.count || court.count < 1) errors.push(`Court ${index + 1}: Count must be at least 1`);
+    });
+  }
+  
+  // Validate operating hours
+  if (!formData.operatingHours) {
+    errors.push('Operating hours are required');
+  } else {
+    // Check that at least one day is open
+    const hasOpenDay = DAYS.some(day => {
+      const dayData = formData.operatingHours[day];
+      return dayData && dayData.isOpen;
+    });
+    
+    if (!hasOpenDay) {
+      errors.push('At least one day must have operating hours');
+    }
+    
+    // Validate time blocks
+    DAYS.forEach(day => {
+      const dayData = formData.operatingHours[day];
+      if (dayData && dayData.isOpen && dayData.blocks) {
+        dayData.blocks.forEach((block, index) => {
+          if (!block.start || !block.end) {
+            errors.push(`${day} Block ${index + 1}: Start and end times are required`);
+          } else if (!isValidTimeFormat(block.start) || !isValidTimeFormat(block.end)) {
+            errors.push(`${day} Block ${index + 1}: Invalid time format`);
+          } else if (timeToMinutes(block.start) >= timeToMinutes(block.end)) {
+            errors.push(`${day} Block ${index + 1}: End time must be after start time`);
+          }
+        });
+        
+        // Check for overlapping blocks
+        for (let i = 0; i < dayData.blocks.length - 1; i++) {
+          for (let j = i + 1; j < dayData.blocks.length; j++) {
+            const block1 = dayData.blocks[i];
+            const block2 = dayData.blocks[j];
+            
+            if (timeToMinutes(block1.start) < timeToMinutes(block2.end) && 
+                timeToMinutes(block2.start) < timeToMinutes(block1.end)) {
+              errors.push(`${day}: Time blocks ${i + 1} and ${j + 1} overlap`);
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  console.log(`✅ [validateFormData] Validation complete. Errors: ${errors.length}`);
+  return {
+    valid: errors.length === 0,
+    errors: errors
+  };
+}
+
+/**
+ * Process operating hours data
+ */
+function processOperatingHoursData(formData) {
+  console.log('🔍 [processOperatingHoursData] Processing hours data');
+  
+  const result = {
+    totalCourts: 0,
+    courtsByType: {},
+    dailyHours: {},
+    weeklyHours: 0,
+    operatingSummary: {}
+  };
+  
+  // Calculate total courts
+  formData.courtTypes.forEach(court => {
+    result.totalCourts += court.count;
+    result.courtsByType[court.type] = court.count;
+  });
+  console.log(`📊 [processOperatingHoursData] Total courts: ${result.totalCourts}`);
+  
+  // Process each day
+  DAYS.forEach(day => {
+    const dayData = formData.operatingHours[day];
+    
+    if (!dayData || !dayData.isOpen) {
+      result.dailyHours[day] = 0;
+      result.operatingSummary[day] = 'Closed';
+    } else if (dayData.copiedFrom) {
+      // Handle copied days - calculate from source
+      const sourceDay = dayData.copiedFrom;
+      result.dailyHours[day] = result.dailyHours[sourceDay] || 0;
+      result.operatingSummary[day] = `Same as ${sourceDay}`;
+    } else if (dayData.blocks && dayData.blocks.length > 0) {
+      // Calculate hours from blocks
+      let dayMinutes = 0;
+      const timeRanges = [];
+      
+      // Sort blocks by start time
+      const sortedBlocks = [...dayData.blocks].sort((a, b) => 
+        timeToMinutes(a.start) - timeToMinutes(b.start)
+      );
+      
+      sortedBlocks.forEach(block => {
+        const minutes = timeToMinutes(block.end) - timeToMinutes(block.start);
+        dayMinutes += minutes;
+        timeRanges.push(`${block.start}-${block.end}`);
+      });
+      
+      result.dailyHours[day] = dayMinutes / 60;
+      result.operatingSummary[day] = timeRanges.join(', ');
+    }
+    
+    result.weeklyHours += result.dailyHours[day] || 0;
+  });
+  
+  console.log(`📊 [processOperatingHoursData] Weekly hours: ${result.weeklyHours}`);
+  return result;
+}
+
+/**
+ * Get operating hours summary from existing data structure
+ */
+function getOperatingHoursSummary(dayData) {
+  if (!dayData) return 'Closed';
+  
+  if (!dayData.isOpen) {
+    return 'Closed';
+  } else if (dayData.copiedFrom) {
+    return `Same as ${dayData.copiedFrom}`;
+  } else if (dayData.blocks && dayData.blocks.length > 0) {
+    return dayData.blocks.map(b => `${b.start}-${b.end}`).join(', ');
+  }
+  
+  return 'Closed';
+}
+
+/**
+ * Format time value from various inputs
+ */
+function formatTimeValue(timeValue) {
+  if (!timeValue) return '';
+  
+  // If it's already a string in HH:MM format, return it
+  if (typeof timeValue === 'string' && /^\d{2}:\d{2}$/.test(timeValue)) {
+    return timeValue;
+  }
+  
+  // If it's a Date object, extract time
+  if (timeValue instanceof Date) {
+    const hours = timeValue.getHours().toString().padStart(2, '0');
+    const minutes = timeValue.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+  
+  // Try to parse as time string
+  const timeStr = timeValue.toString();
+  const match = timeStr.match(/(\d{1,2}):(\d{2})/);
+  if (match) {
+    const hours = match[1].padStart(2, '0');
+    const minutes = match[2];
+    return `${hours}:${minutes}`;
+  }
+  
+  return '';
+}
+
+// ====================================================================
+// EXISTING UTILITY FUNCTIONS (REUSED FROM ORIGINAL)
+// ====================================================================
+
+/**
+ * Gets the current spreadsheet's name
+ */
+function getSpreadsheetName() {
+  console.log('📝 [getSpreadsheetName] Getting spreadsheet name');
+  
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const name = spreadsheet.getName();
+    
+    const result = {
+      raw: name,
+      clean: name.trim()
+    };
+    
+    console.log('✅ [getSpreadsheetName] Name retrieved:', result);
+    return result;
+    
+  } catch (error) {
+    console.error('❌ [getSpreadsheetName] Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fetches club names from external database
+ */
+function getClubNames() {
+  console.log('📝 [getClubNames] Starting club names fetch');
+  
+  const cacheKey = 'club_names_cache';
+  const cache = CacheService.getScriptCache();
+  
+  try {
+    // Check cache first
+    console.log('🔍 [getClubNames] Checking cache');
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      console.log('✅ [getClubNames] Using cached data');
+      return JSON.parse(cached);
+    }
+    
+    console.log('🔍 [getClubNames] Fetching from external spreadsheet');
+    
+    // Access external spreadsheet
+    const externalSpreadsheet = SpreadsheetApp.openById(EXTERNAL_SPREADSHEET_ID);
+    const externalSheet = externalSpreadsheet.getSheetByName('Master');
+    const dataRange = externalSheet.getRange('A2:C140');
+    const dataValues = dataRange.getValues();
+    
+    // Process data
+    const clubData = [];
+    const lookupTable = {};
+    const allColumnC = [];
+    
+    dataValues.forEach((row) => {
+      const clubName = row[0];
+      const lookupValue = row[2];
+      
+      const cleanClubName = typeof clubName === 'string' ? 
+        clubName.replace(/^["']|["']$/g, '') : clubName;
+      
+      if (lookupValue && String(lookupValue).trim() !== '') {
+        allColumnC.push(String(lookupValue));
+      }
+      
+      if (cleanClubName && lookupValue && String(lookupValue).trim() !== '') {
+        clubData.push({
+          name: cleanClubName,
+          lookupId: String(lookupValue)
+        });
+        
+        lookupTable[String(lookupValue)] = cleanClubName;
+        lookupTable[String(lookupValue).toLowerCase().trim()] = cleanClubName;
+      } else if (cleanClubName) {
+        clubData.push({
+          name: cleanClubName,
+          lookupId: ''
+        });
+      }
+    });
+    
+    const result = {
+      clubs: clubData,
+      lookupTable: lookupTable,
+      allColumnC: allColumnC,
+      cachedAt: new Date().toISOString()
+    };
+    
+    // Cache for 6 hours
+    cache.put(cacheKey, JSON.stringify(result), 21600);
+    
+    console.log('✅ [getClubNames] Data fetched and cached. Clubs:', clubData.length);
+    return result;
+    
+  } catch (error) {
+    console.error('❌ [getClubNames] Error:', error);
+    
+    return {
+      clubs: [{name: 'Error loading club names', lookupId: ''}],
+      lookupTable: {},
+      allColumnC: [],
+      error: error.toString()
+    };
+  }
+}
+
+/**
+ * Match club name from spreadsheet name
+ */
+function matchClubName(spreadsheetNameData, clubNamesData) {
+  console.log('🔍 [matchClubName] Attempting to match club name');
+  
+  if (!spreadsheetNameData?.clean || !clubNamesData?.lookupTable) {
+    return null;
+  }
+  
+  // Try direct match
+  let matchedClubName = clubNamesData.lookupTable[spreadsheetNameData.clean];
+  
+  // Try case-insensitive
+  if (!matchedClubName) {
+    const normalizedName = spreadsheetNameData.clean.toLowerCase().trim();
+    matchedClubName = clubNamesData.lookupTable[normalizedName];
+  }
+  
+  // Try substring match
+  if (!matchedClubName && clubNamesData.allColumnC) {
+    const normalizedName = spreadsheetNameData.clean.toLowerCase().trim();
+    
+    for (const lookupValue of clubNamesData.allColumnC) {
+      if (lookupValue && normalizedName.includes(lookupValue.toLowerCase())) {
+        matchedClubName = clubNamesData.lookupTable[lookupValue];
+        break;
+      }
+    }
+  }
+  
+  // Clean quotes if found
+  if (matchedClubName && typeof matchedClubName === 'string') {
+    matchedClubName = matchedClubName.replace(/^["']|["']$/g, '');
+  }
+  
+  console.log('✅ [matchClubName] Result:', matchedClubName || 'No match');
+  return matchedClubName;
+}
+
+/**
+ * Time conversion utilities
+ */
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  if (timeStr === '24:00') return 1440;
+  
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(minutes) {
+  if (minutes === 1440) return '24:00';
+  
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+}
+
+function isValidTimeFormat(timeStr) {
+  if (!timeStr) return false;
+  if (timeStr === '24:00') return true;
+  
+  const regex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+  return regex.test(timeStr);
+}
+
+// ====================================================================
+// UI FUNCTIONS
+// ====================================================================
+
+/**
+ * Refresh club names cache
+ */
+function refreshClubNamesCache() {
+  console.log('🟢 [refreshClubNamesCache] Starting cache refresh');
+  
+  try {
+    CacheService.getScriptCache().remove('club_names_cache');
+    const clubNamesData = getClubNames();
+    
+    SpreadsheetApp.getUi().alert(
+      `Club names cache refreshed. Found ${clubNamesData.clubs.length} clubs.`
+    );
+    
+    console.log('✅ [refreshClubNamesCache] Cache refreshed successfully');
+    return clubNamesData;
+    
+  } catch (error) {
+    console.error('❌ [refreshClubNamesCache] Error:', error);
+    SpreadsheetApp.getUi().alert("Error refreshing cache: " + error.toString());
+    throw error;
+  }
+}
+
+/**
+ * Show change history summary
+ */
+function showChangeHistory() {
+  console.log('🔍 [showChangeHistory] Displaying change history');
+  
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CHANGELOG_SHEET_NAME);
+    
+    if (!sheet) {
+      SpreadsheetApp.getUi().alert('No change history found. Make some changes first!');
+      return;
+    }
+    
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 2) {
+      SpreadsheetApp.getUi().alert('No changes recorded yet.');
+      return;
+    }
+    
+    // Get last 10 changes
+    const startRow = Math.max(3, lastRow - 9);
+    const numRows = lastRow - startRow + 1;
+    const changes = sheet.getRange(startRow, 1, numRows, 4).getValues();
+    
+    let message = 'Recent Changes (Last 10):\n\n';
+    changes.reverse().forEach(change => {
+      const date = new Date(change[0]).toLocaleString();
+      message += `${date}\n${change[1]}: ${change[2]} → ${change[3]}\n\n`;
+    });
+    
+    SpreadsheetApp.getUi().alert('Change History', message, SpreadsheetApp.getUi().ButtonSet.OK);
+    
+  } catch (error) {
+    console.error('❌ [showChangeHistory] Error:', error);
+    SpreadsheetApp.getUi().alert('Error displaying change history: ' + error.toString());
+  }
+}
+
+/**
+ * Show service status dialog
+ */
+function showServiceStatus() {
+  console.log('📊 [showServiceStatus] Showing service status');
+  
+  try {
+    const status = ClubDataService.getStatus();
+    
+    let message = `Service ID: ${status.serviceId}\n`;
+    message += `Status: ${status.status}\n`;
+    message += `Active: ${status.isActive ? 'Yes' : 'No'}\n`;
+    
+    if (status.lastReload) {
+      const lastReload = new Date(status.lastReload);
+      message += `Last Reload: ${lastReload.toLocaleString()}\n`;
+    }
+    
+    message += `\nStored Properties: ${status.propertyCount}\n`;
+    message += `Total Size: ${(status.totalSize / 1024).toFixed(2)} KB\n`;
+    
+    if (status.error) {
+      message += `\nError: ${status.error}`;
+    }
+    
+    SpreadsheetApp.getUi().alert('Script Properties Service Status', message, SpreadsheetApp.getUi().ButtonSet.OK);
+    
+  } catch (error) {
+    console.error('❌ [showServiceStatus] Error:', error);
+    SpreadsheetApp.getUi().alert('Error getting service status: ' + error.toString());
+  }
+}
+
+/**
+ * Reload service data (menu function)
+ */
+function reloadServiceData() {
+  console.log('🔄 [reloadServiceData] Reloading service data via menu');
+  
+  try {
+    const result = ClubDataService.reload();
+    
+    if (result) {
+      SpreadsheetApp.getUi().alert('Service data reloaded successfully!');
+    } else {
+      SpreadsheetApp.getUi().alert('Failed to reload service data. Check the logs for details.');
+    }
+    
+  } catch (error) {
+    console.error('❌ [reloadServiceData] Error:', error);
+    SpreadsheetApp.getUi().alert('Error reloading service: ' + error.toString());
+  }
+}
+
+/**
+ * Reset service data (menu function with confirmation)
+ */
+function resetServiceData() {
+  console.log('🗑️ [resetServiceData] Reset service requested via menu');
+  
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    'Reset Service Data',
+    'This will clear all Script Properties for this club. The database will remain intact. Continue?',
+    ui.ButtonSet.YES_NO
+  );
+  
+  if (response === ui.Button.YES) {
+    try {
+      const result = ClubDataService.reset();
+      
+      if (result) {
+        ui.alert('Service data has been reset. Run "Reload Service Data" to restore from database.');
+      } else {
+        ui.alert('Failed to reset service data.');
+      }
+      
+    } catch (error) {
+      console.error('❌ [resetServiceData] Error:', error);
+      ui.alert('Error resetting service: ' + error.toString());
+    }
+  }
+}
+
+/**
+ * View service log
+ */
+function viewServiceLog() {
+  console.log('📋 [viewServiceLog] Viewing service log');
+  
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ServiceLog');
+    
+    if (!sheet) {
+      SpreadsheetApp.getUi().alert('No service log found. The log is created during weekly reloads.');
+      return;
+    }
+    
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 2) {
+      SpreadsheetApp.getUi().alert('No service events logged yet.');
+      return;
+    }
+    
+    // Get last 10 events
+    const startRow = Math.max(3, lastRow - 9);
+    const numRows = lastRow - startRow + 1;
+    const events = sheet.getRange(startRow, 1, numRows, 3).getValues();
+    
+    let message = 'Recent Service Events (Last 10):\n\n';
+    events.reverse().forEach(event => {
+      const date = new Date(event[0]).toLocaleString();
+      message += `${date}\n${event[1]}: ${event[2]}\n\n`;
+    });
+    
+    SpreadsheetApp.getUi().alert('Service Event Log', message, SpreadsheetApp.getUi().ButtonSet.OK);
+    
+  } catch (error) {
+    console.error('❌ [viewServiceLog] Error:', error);
+    SpreadsheetApp.getUi().alert('Error viewing service log: ' + error.toString());
+  }
+}
+
+/**
+ * Show about dialog
+ */
+function showAbout() {
+  const message = 
+    'Club Information Management System\n' +
+    'Version 2.0 - Database Implementation\n\n' +
+    'Features:\n' +
+    '• Database-driven architecture\n' +
+    '• Multiple court types support\n' +
+    '• Flexible operating hours with breaks\n' +
+    '• Edit functionality with change tracking\n' +
+    '• Clean time format for easy parsing\n' +
+    '• Script Properties service layer\n' +
+    '• Weekly automatic data refresh\n\n' +
+    'Data Architecture:\n' +
+    '• ClubData_DB: Database storage\n' +
+    '• ClubInfo: Presentation view\n' +
+    '• ChangeLog: Audit trail\n' +
+    '• Script Properties: Fast access cache\n\n' +
+    'Service Access:\n' +
+    'const hours = ClubDataService.get("operating_hours.Monday");\n' +
+    'const courts = ClubDataService.get("court_types.Tennis");';
+  
+  SpreadsheetApp.getUi().alert('About', message, SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// ====================================================================
+// SCRIPT PROPERTIES SERVICE LAYER
+// ====================================================================
+
+/**
+ * ClubDataService - Script Properties Service for Club Data
+ * 
+ * USAGE BY OTHER SCRIPTS:
+ * -----------------------
+ * // Get specific data using dot notation:
+ * const mondayHours = ClubDataService.get('operating_hours.Monday');
+ * const tennisCourtCount = ClubDataService.get('court_types.Tennis');
+ * const clubName = ClubDataService.get('basic_info.clubName');
+ * 
+ * // Get entire sections:
+ * const allOperatingHours = ClubDataService.get('operating_hours');
+ * const allCourtTypes = ClubDataService.get('court_types');
+ * 
+ * // Get computed values:
+ * const totalCourts = ClubDataService.get('computed.totalCourts');
+ * const weeklyHours = ClubDataService.get('computed.weeklyHours');
+ * 
+ * // Check service status:
+ * const isActive = ClubDataService.isActive();
+ * const lastUpdate = ClubDataService.getLastUpdate();
+ * 
+ * // Force refresh (if needed):
+ * ClubDataService.reload();
+ */
+const ClubDataService = {
+  /**
+   * Initialize the service from database
+   */
+  initialize: function() {
+    console.log('🟢 [ClubDataService.initialize] Starting service initialization');
+    
+    try {
+      const serviceId = this._getServiceId();
+      console.log(`📝 [ClubDataService.initialize] Service ID: ${serviceId}`);
+      
+      // Load data from database
+      const dbData = this._loadFromDatabase();
+      if (!dbData) {
+        console.log('⚠️ [ClubDataService.initialize] No data in database');
+        return false;
+      }
+      
+      // Store in Script Properties
+      const scriptProperties = PropertiesService.getScriptProperties();
+      const timestamp = new Date().toISOString();
+      
+      // Store basic info
+      scriptProperties.setProperty(`${serviceId}_BASIC_INFO`, JSON.stringify({
+        clubName: dbData.clubName,
+        lastUpdated: dbData.lastUpdated,
+        totalCourts: dbData.computed.totalCourts,
+        courtsByType: dbData.computed.courtsByType
+      }));
+      
+      // Store court types
+      scriptProperties.setProperty(`${serviceId}_COURT_TYPES`, JSON.stringify(dbData.courtTypes));
+      
+      // Store operating hours
+      scriptProperties.setProperty(`${serviceId}_OPERATING_HOURS`, JSON.stringify(dbData.operatingHours));
+      
+      // Store computed values
+      scriptProperties.setProperty(`${serviceId}_COMPUTED`, JSON.stringify(dbData.computed));
+      
+      // Store service metadata
+      scriptProperties.setProperty(`${serviceId}_SERVICE_META`, JSON.stringify({
+        initialized: true,
+        lastReload: timestamp,
+        version: '1.0',
+        status: 'active',
+        dataSource: DB_SHEET_NAME
+      }));
+      
+      console.log('✅ [ClubDataService.initialize] Service initialized successfully');
+      
+      // Set up weekly trigger if not exists
+      this._setupWeeklyTrigger();
+      
+      return true;
+      
+    } catch (error) {
+      console.error('❌ [ClubDataService.initialize] Error:', error);
+      return false;
+    }
+  },
+  
+  /**
+   * Reload service data from database
+   */
+  reload: function() {
+    console.log('🔄 [ClubDataService.reload] Reloading service data');
+    return this.initialize(); // Simply re-initialize
+  },
+  
+  /**
+   * Reset this service (clear all data)
+   */
+  reset: function() {
+    console.log('🗑️ [ClubDataService.reset] Resetting service');
+    
+    try {
+      const serviceId = this._getServiceId();
+      const scriptProperties = PropertiesService.getScriptProperties();
+      
+      // Get all properties
+      const allProperties = scriptProperties.getProperties();
+      
+      // Remove all properties for this service
+      Object.keys(allProperties).forEach(key => {
+        if (key.startsWith(serviceId + '_')) {
+          scriptProperties.deleteProperty(key);
+          console.log(`🗑️ [ClubDataService.reset] Deleted: ${key}`);
+        }
+      });
+      
+      console.log('✅ [ClubDataService.reset] Service reset complete');
+      return true;
+      
+    } catch (error) {
+      console.error('❌ [ClubDataService.reset] Error:', error);
+      return false;
+    }
+  },
+  
+  /**
+   * Stop the service (mark as inactive)
+   */
+  stop: function() {
+    console.log('⏹️ [ClubDataService.stop] Stopping service');
+    
+    try {
+      const serviceId = this._getServiceId();
+      const scriptProperties = PropertiesService.getScriptProperties();
+      
+      // Update service metadata
+      const metaKey = `${serviceId}_SERVICE_META`;
+      const meta = JSON.parse(scriptProperties.getProperty(metaKey) || '{}');
+      meta.status = 'stopped';
+      meta.stoppedAt = new Date().toISOString();
+      
+      scriptProperties.setProperty(metaKey, JSON.stringify(meta));
+      
+      console.log('✅ [ClubDataService.stop] Service stopped');
+      return true;
+      
+    } catch (error) {
+      console.error('❌ [ClubDataService.stop] Error:', error);
+      return false;
+    }
+  },
+  
+  /**
+   * Get data from the service
+   * @param {string} path - Dot notation path (e.g., 'operating_hours.Monday')
+   * @returns {any} The requested data or null if not found
+   */
+  get: function(path) {
+    console.log(`🔍 [ClubDataService.get] Getting: ${path}`);
+    
+    try {
+      const serviceId = this._getServiceId();
+      const scriptProperties = PropertiesService.getScriptProperties();
+      
+      // Check if service is active
+      const meta = JSON.parse(scriptProperties.getProperty(`${serviceId}_SERVICE_META`) || '{}');
+      if (meta.status !== 'active') {
+        console.warn('⚠️ [ClubDataService.get] Service is not active');
+        return null;
+      }
+      
+      // Parse the path
+      const pathParts = path.split('.');
+      const section = pathParts[0];
+      
+      // Map section to property key
+      const sectionMap = {
+        'basic_info': '_BASIC_INFO',
+        'court_types': '_COURT_TYPES',
+        'operating_hours': '_OPERATING_HOURS',
+        'computed': '_COMPUTED'
+      };
+      
+      const propertyKey = serviceId + (sectionMap[section] || `_${section.toUpperCase()}`);
+      const data = JSON.parse(scriptProperties.getProperty(propertyKey) || 'null');
+      
+      if (!data) {
+        console.log(`⚠️ [ClubDataService.get] No data found for section: ${section}`);
+        return null;
+      }
+      
+      // Navigate to requested path
+      let result = data;
+      for (let i = 1; i < pathParts.length; i++) {
+        if (result && typeof result === 'object' && pathParts[i] in result) {
+          result = result[pathParts[i]];
+        } else {
+          console.log(`⚠️ [ClubDataService.get] Path not found: ${path}`);
+          return null;
+        }
+      }
+      
+      console.log(`✅ [ClubDataService.get] Found data for: ${path}`);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ [ClubDataService.get] Error:', error);
+      return null;
+    }
+  },
+  
+  /**
+   * Check if service is active
+   */
+  isActive: function() {
+    try {
+      const serviceId = this._getServiceId();
+      const scriptProperties = PropertiesService.getScriptProperties();
+      const meta = JSON.parse(scriptProperties.getProperty(`${serviceId}_SERVICE_META`) || '{}');
+      return meta.status === 'active';
+    } catch (error) {
+      return false;
+    }
+  },
+  
+  /**
+   * Get last update timestamp
+   */
+  getLastUpdate: function() {
+    try {
+      const serviceId = this._getServiceId();
+      const scriptProperties = PropertiesService.getScriptProperties();
+      const meta = JSON.parse(scriptProperties.getProperty(`${serviceId}_SERVICE_META`) || '{}');
+      return meta.lastReload || null;
+    } catch (error) {
+      return null;
+    }
+  },
+  
+  /**
+   * Get service status information
+   */
+  getStatus: function() {
+    console.log('📊 [ClubDataService.getStatus] Getting service status');
+    
+    try {
+      const serviceId = this._getServiceId();
+      const scriptProperties = PropertiesService.getScriptProperties();
+      
+      // Get all properties for this service
+      const allProperties = scriptProperties.getProperties();
+      const serviceProperties = {};
+      let propertyCount = 0;
+      
+      Object.keys(allProperties).forEach(key => {
+        if (key.startsWith(serviceId + '_')) {
+          propertyCount++;
+          serviceProperties[key] = allProperties[key].length; // Size in characters
+        }
+      });
+      
+      // Get metadata
+      const meta = JSON.parse(scriptProperties.getProperty(`${serviceId}_SERVICE_META`) || '{}');
+      
+      return {
+        serviceId: serviceId,
+        isActive: meta.status === 'active',
+        status: meta.status || 'not_initialized',
+        lastReload: meta.lastReload,
+        version: meta.version,
+        propertyCount: propertyCount,
+        properties: serviceProperties,
+        totalSize: Object.values(serviceProperties).reduce((sum, size) => sum + size, 0)
+      };
+      
+    } catch (error) {
+      console.error('❌ [ClubDataService.getStatus] Error:', error);
+      return {
+        serviceId: this._getServiceId(),
+        isActive: false,
+        status: 'error',
+        error: error.toString()
+      };
+    }
+  },
+  
+  // PRIVATE METHODS
+  
+  /**
+   * Generate service ID from spreadsheet name
+   */
+  _getServiceId: function() {
+    const spreadsheetName = SpreadsheetApp.getActiveSpreadsheet().getName();
+    // Extract first letter of each word
+    const serviceId = spreadsheetName
+      .split(/\s+/)
+      .map(word => word.charAt(0).toUpperCase())
+      .join('');
+    return serviceId;
+  },
+  
+  /**
+   * Load data from database
+   */
+  _loadFromDatabase: function() {
+    console.log('📖 [ClubDataService._loadFromDatabase] Loading from database');
+    
+    try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const dbSheet = ss.getSheetByName(DB_SHEET_NAME);
+      
+      if (!dbSheet) {
+        console.log('⚠️ [ClubDataService._loadFromDatabase] No database sheet found');
+        return null;
+      }
+      
+      // Load basic info
+      const clubName = dbSheet.getRange('B3').getValue();
+      const lastUpdated = dbSheet.getRange('B4').getValue();
+      
+      if (!clubName) {
+        console.log('⚠️ [ClubDataService._loadFromDatabase] No club data found');
+        return null;
+      }
+      
+      // Load court types
+      const courtTypes = {};
+      const courtData = dbSheet.getRange('D3:E20').getValues();
+      let totalCourts = 0;
+      
+      courtData.forEach(row => {
+        if (row[0] && row[1]) {
+          courtTypes[row[0]] = row[1];
+          totalCourts += row[1];
+        }
+      });
+      
+      // Load operating hours
+      const operatingHours = {};
+      const hoursData = dbSheet.getRange('G3:L200').getValues();
+      let weeklyHours = 0;
+      
+      DAYS.forEach(day => {
+        operatingHours[day] = {
+          blocks: [],
+          totalHours: 0,
+          status: 'closed'
+        };
+      });
+      
+      hoursData.forEach(row => {
+        const [day, block, openTime, closeTime, totalHours, status] = row;
+        if (!day) return;
+        
+        if (status === 'ACTIVE' && openTime && closeTime) {
+          operatingHours[day].blocks.push({
+            start: formatTimeValue(openTime),
+            end: formatTimeValue(closeTime),
+            hours: totalHours
+          });
+          operatingHours[day].status = 'active';
+        } else if (status === 'COPY') {
+          operatingHours[day].status = 'copy';
+          operatingHours[day].copiedFrom = block;
+        } else if (status === 'CLOSED') {
+          operatingHours[day].status = 'closed';
+        }
+        
+        if (totalHours) {
+          operatingHours[day].totalHours = totalHours;
+          weeklyHours += totalHours;
+        }
+      });
+      
+      return {
+        clubName: clubName,
+        lastUpdated: lastUpdated,
+        courtTypes: courtTypes,
+        operatingHours: operatingHours,
+        computed: {
+          totalCourts: totalCourts,
+          courtsByType: courtTypes,
+          weeklyHours: weeklyHours,
+          dailyAverage: weeklyHours / 7,
+          weeklyCourtHours: weeklyHours * totalCourts
+        }
+      };
+      
+    } catch (error) {
+      console.error('❌ [ClubDataService._loadFromDatabase] Error:', error);
+      return null;
+    }
+  },
+  
+  /**
+   * Set up weekly trigger for reload
+   */
+  _setupWeeklyTrigger: function() {
+    console.log('⏰ [ClubDataService._setupWeeklyTrigger] Setting up weekly trigger');
+    
+    try {
+      const triggers = ScriptApp.getProjectTriggers();
+      const functionName = 'weeklyServiceReload';
+      
+      // Check if trigger already exists
+      const existingTrigger = triggers.find(trigger => 
+        trigger.getHandlerFunction() === functionName
+      );
+      
+      if (existingTrigger) {
+        console.log('✅ [ClubDataService._setupWeeklyTrigger] Trigger already exists');
+        return;
+      }
+      
+      // Create weekly trigger - Sundays at 2 AM
+      ScriptApp.newTrigger(functionName)
+        .timeBased()
+        .onWeekDay(ScriptApp.WeekDay.SUNDAY)
+        .atHour(2)
+        .create();
+      
+      console.log('✅ [ClubDataService._setupWeeklyTrigger] Weekly trigger created');
+      
+    } catch (error) {
+      console.error('❌ [ClubDataService._setupWeeklyTrigger] Error:', error);
+    }
+  }
+};
+
+/**
+ * Weekly reload function (called by trigger)
+ */
+function weeklyServiceReload() {
+  console.log('⏰ [weeklyServiceReload] Weekly service reload triggered');
+  
+  try {
+    const result = ClubDataService.reload();
+    
+    // Log the reload event
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let logSheet = ss.getSheetByName('ServiceLog');
+    
+    if (!logSheet) {
+      logSheet = ss.insertSheet('ServiceLog');
+      logSheet.getRange('A1').setValue('Service Reload Log');
+      logSheet.getRange('A2').setValue('Timestamp');
+      logSheet.getRange('B2').setValue('Result');
+      logSheet.getRange('C2').setValue('Message');
+      logSheet.getRange('A1:C1').merge().setBackground('#666666').setFontColor('white');
+      logSheet.getRange('A2:C2').setFontWeight('bold');
+    }
+    
+    const lastRow = logSheet.getLastRow() + 1;
+    logSheet.getRange(lastRow, 1).setValue(new Date());
+    logSheet.getRange(lastRow, 2).setValue(result ? 'Success' : 'Failed');
+    logSheet.getRange(lastRow, 3).setValue('Weekly automatic reload');
+    
+    console.log('✅ [weeklyServiceReload] Reload completed:', result);
+    
+  } catch (error) {
+    console.error('❌ [weeklyServiceReload] Error:', error);
+  }
+}
+
+// ====================================================================
+// SERVICE INTEGRATION WITH DATA UPDATES
+// ====================================================================
+
+/**
+ * Update service after data changes (add to existing writeToDatabase function)
+ */
+function updateServiceAfterDataChange() {
+  console.log('🔄 [updateServiceAfterDataChange] Updating service after data change');
+  
+  try {
+    // Auto-refresh the service
+    const result = ClubDataService.reload();
+    console.log('✅ [updateServiceAfterDataChange] Service updated:', result);
+    
+  } catch (error) {
+    console.error('❌ [updateServiceAfterDataChange] Error updating service:', error);
+  }
+}
+
+// ====================================================================
+// TEST FUNCTIONS
+// ====================================================================
+
+/**
+ * Test function for database operations
+ */
+function testDatabaseOperations() {
+  console.log('🧪 [testDatabaseOperations] Starting test');
+  
+  const testData = {
+    clubName: "Database Test Club",
+    courtTypes: [
+      { type: "Tennis", count: 6 },
+      { type: "Padel", count: 3 }
+    ],
+    operatingHours: {
+      Monday: {
+        isOpen: true,
+        blocks: [
+          { start: "06:00", end: "12:00" },
+          { start: "14:00", end: "22:00" }
+        ]
+      },
+      Tuesday: { copiedFrom: "Monday" },
+      Wednesday: { copiedFrom: "Monday" },
+      Thursday: {
+        isOpen: true,
+        blocks: [{ start: "06:00", end: "23:00" }]
+      },
+      Friday: {
+        isOpen: true,
+        blocks: [{ start: "06:00", end: "24:00" }]
+      },
+      Saturday: {
+        isOpen: true,
+        blocks: [{ start: "08:00", end: "20:00" }]
+      },
+      Sunday: { isOpen: false }
+    }
+  };
+  
+  const result = processClubData(testData);
+  console.log('🧪 [testDatabaseOperations] Test result:', result);
+  return result;
+}
+
+/**
+ * Debug function to check database structure
+ */
+function debugDatabaseStructure() {
+  console.log('🔍 [debugDatabaseStructure] Checking database');
+  
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // Check sheets
+    const sheets = ss.getSheets().map(s => s.getName());
+    console.log('📋 Sheets found:', sheets);
+    
+    // Check database content
+    const dbSheet = ss.getSheetByName(DB_SHEET_NAME);
+    if (dbSheet) {
+      console.log('✅ Database sheet exists');
+      
+      // Check basic info
+      const clubName = dbSheet.getRange('B3').getValue();
+      console.log('📝 Club Name:', clubName || '[Empty]');
+      
+      // Check court types
+      const courtData = dbSheet.getRange('D3:E10').getValues();
+      let courtCount = 0;
+      courtData.forEach(row => {
+        if (row[0]) courtCount++;
+      });
+      console.log('🎾 Court Types:', courtCount);
+      
+      // Check operating hours
+      const hoursData = dbSheet.getRange('G3:L50').getValues();
+      let hoursCount = 0;
+      hoursData.forEach(row => {
+        if (row[0]) hoursCount++;
+      });
+      console.log('🕐 Operating Hours Rows:', hoursCount);
+    } else {
+      console.log('❌ No database sheet found');
+    }
+    
+  } catch (error) {
+    console.error('❌ [debugDatabaseStructure] Error:', error);
+  }
+}
+
+/**
+ * Test function for Script Properties Service
+ */
+function testServiceLayer() {
+  console.log('🧪 [testServiceLayer] Testing Script Properties Service');
+  
+  try {
+    // Test initialization
+    console.log('1️⃣ Testing initialization...');
+    const initResult = ClubDataService.initialize();
+    console.log('   Initialize result:', initResult);
+    
+    // Test status check
+    console.log('2️⃣ Testing status...');
+    const status = ClubDataService.getStatus();
+    console.log('   Status:', JSON.stringify(status, null, 2));
+    
+    // Test data retrieval
+    console.log('3️⃣ Testing data retrieval...');
+    console.log('   Club name:', ClubDataService.get('basic_info.clubName'));
+    console.log('   Total courts:', ClubDataService.get('computed.totalCourts'));
+    console.log('   Monday hours:', ClubDataService.get('operating_hours.Monday'));
+    console.log('   Tennis courts:', ClubDataService.get('court_types.Tennis'));
+    
+    // Test getting entire sections
+    console.log('4️⃣ Testing section retrieval...');
+    console.log('   All court types:', ClubDataService.get('court_types'));
+    console.log('   All computed values:', ClubDataService.get('computed'));
+    
+    // Test service lifecycle
+    console.log('5️⃣ Testing service lifecycle...');
+    console.log('   Is active:', ClubDataService.isActive());
+    console.log('   Last update:', ClubDataService.getLastUpdate());
+    
+    console.log('🎉 [testServiceLayer] All tests completed!');
+    
+  } catch (error) {
+    console.error('❌ [testServiceLayer] Test failed:', error);
+  }
+}
+
+/**
+ * Manual service management functions for testing
+ */
+function manualServiceReset() {
+  return ClubDataService.reset();
+}
+
+function manualServiceReload() {
+  return ClubDataService.reload();
+}
+
+function manualServiceStop() {
+  return ClubDataService.stop();
+}
+
+function viewServiceStatus() {
+  const status = ClubDataService.getStatus();
+  console.log('Service Status:', JSON.stringify(status, null, 2));
+  return status;
+}
