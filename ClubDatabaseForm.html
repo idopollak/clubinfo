@@ -232,7 +232,7 @@
       
       // Initialize with passed data
       const spreadsheetNameData = <?= JSON.stringify(spreadsheetNameData || {}) ?>;
-      const matchedClubName = <?= JSON.stringify(matchedClubName || null) ?>;
+      const matchedClubName = <?!= matchedClubName ?>;
       existingData = <?= JSON.stringify(existingData || null) ?>;
       courtTypes = <?= JSON.stringify(courtTypes || []) ?>;
       isEditMode = <?= JSON.stringify(isEditMode || false) ?>;
