@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Club Information Form</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+  <!-- Custom CSS -->
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+    .container {
+      max-width: 850px;
+      background-color: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .form-header {
+      background-color: #1775AF;
+      color: white;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      text-align: center;
+    }
+    .edit-mode-header {
+      background-color: #e69138;
+    }
+    .section-header {
+      background-color: #e9ecef;
+      padding: 10px;
+      margin: 20px 0 10px 0;
+      border-radius: 5px;
+      font-weight: bold;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .court-type-row {
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background-color: #f8f9fa;
+    }
+    .day-row {
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .day-row:last-child {
+      border-bottom: none;
+    }
+    .time-block {
+      background-color: #e3f2fd;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 5px;
+    }
+    .form-buttons {
+      margin-top: 30px;
+      text-align: center;
+    }
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      color: white;
+      font-size: 24px;
+    }
+    .closed-day {
+      color: #999;
+      font-style: italic;
+    }
+    .copied-day {
+      color: #666;
+      font-style: italic;
+    }
+    .time-select {
+      font-family: 'Courier New', monospace;
+      width: 120px;
+    }
+    .add-btn {
+      font-size: 0.9rem;
+    }
+    .quick-setup-hint {
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    .info-box {
+      background-color: #cfe2f3;
+      border: 1px solid #9fc5e8;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 15px;
+      font-size: 13px;
+    }
+    .last-updated {
+      text-align: right;
+      color: #666;
+      font-size: 12px;
+      font-style: italic;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="form-header" id="formHeader">
+      <h2><i class="bi bi-building"></i> <span id="formTitle">Setup Club Information</span></h2>
+      <small id="formSubtitle">Configure club details and operating hours</small>
+    </div>
+    
+    <!-- Info Box for Edit Mode -->
+    <div id="editModeInfo" class="info-box" style="display: none;">
+      <i class="bi bi-info-circle"></i> <strong>Edit Mode:</strong> 
+      You are editing existing club information. All changes will be tracked in the change log.
+      <div id="lastUpdatedInfo" class="last-updated"></div>
+    </div>
+    
+    <!-- Club Identification Section -->
+    <div class="section-header">
+      <i class="bi bi-info-circle"></i> Club Identification
+    </div>
+    <div class="row mb-3">
+      <div class="col-12">
+        <label for="clubName" class="form-label">Club Name:</label>
+        <input type="text" id="clubName" class="form-control" required>
+        <small class="text-muted">Auto-populated from spreadsheet name when available</small>
+      </div>
+    </div>
+    
+    <!-- Court Types Section -->
+    <div class="section-header">
+      <i class="bi bi-grid-3x3-gap"></i> Court Types
+    </div>
+    <div id="courtTypesContainer">
+      <!-- Court types will be added dynamically -->
+    </div>
+    <div class="row mb-3">
+      <div class="col-12">
+        <button type="button" id="addCourtTypeBtn" class="btn btn-success btn-sm add-btn">
+          <i class="bi bi-plus-circle"></i> Add Court Type
+        </button>
+      </div>
+    </div>
+    
+    <!-- Operating Hours Section -->
+    <div class="section-header">
+      <i class="bi bi-clock"></i> Operating Hours
+    </div>
+    
+    <!-- Quick setup option -->
+    <div class="quick-setup-hint">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="sameHoursAllDays">
+        <label class="form-check-label" for="sameHoursAllDays">
+          <strong>Use same hours for all days</strong> - Configure once and apply to all days
+        </label>
+      </div>
+    </div>
+    
+    <div id="operatingHoursContainer">
+      <!-- Days will be populated here -->
+    </div>
+    
+    <!-- Form Buttons -->
+    <div class="form-buttons">
+      <button type="button" id="submitBtn" class="btn btn-primary">
+        <i class="bi bi-check-circle"></i> <span id="submitBtnText">Save Club Information</span>
+      </button>
+      <button type="button" id="cancelBtn" class="btn btn-secondary">
+        <i class="bi bi-x-circle"></i> Cancel
+      </button>
+    </div>
+    
+    <div id="errorContainer" class="alert alert-danger mt-3" style="display: none;"></div>
+  </div>
+  
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+    <div>
+      <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <div>Processing...</div>
+    </div>
+  </div>
+  
+  <!-- Bootstrap Bundle with Popper -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+  
+  <!-- Main Form Script -->
+  <script>
+    // Global variables
+    let courtTypes = [];
+    let courtTypeCounter = 0;
+    let operatingHours = {};
+    let timeOptions = [];
+    let isEditMode = false;
+    let existingData = null;
+    
+    // Initialize form
+    function initializeForm() {
+      console.log('[Form] Initializing');
+      
+      // Generate time options
+      timeOptions = generateTimeOptions();
+      
+      // Set up event listeners
+      document.getElementById('addCourtTypeBtn').addEventListener('click', addCourtType);
+      document.getElementById('submitBtn').addEventListener('click', submitForm);
+      document.getElementById('cancelBtn').addEventListener('click', closeForm);
+      document.getElementById('sameHoursAllDays').addEventListener('change', handleSameHoursToggle);
+      
+      // Initialize with passed data
+      const spreadsheetNameData = <?= JSON.stringify(spreadsheetNameData || {}) ?>;
+      const matchedClubName = <?= JSON.stringify(matchedClubName || null) ?>;
+      existingData = <?= JSON.stringify(existingData || null) ?>;
+      courtTypes = <?= JSON.stringify(courtTypes || []) ?>;
+      isEditMode = <?= JSON.stringify(isEditMode || false) ?>;
+      
+      // Configure UI for edit mode
+      if (isEditMode) {
+        console.log('[Form] Configuring for EDIT mode');
+        document.getElementById('formHeader').classList.add('edit-mode-header');
+        document.getElementById('formTitle').textContent = 'Edit Club Information';
+        document.getElementById('formSubtitle').textContent = 'Update club details and operating hours';
+        document.getElementById('submitBtnText').textContent = 'Update Club Information';
+        document.getElementById('editModeInfo').style.display = 'block';
+        
+        if (existingData.lastUpdated) {
+          const lastUpdated = new Date(existingData.lastUpdated);
+          document.getElementById('lastUpdatedInfo').textContent = 
+            'Last updated: ' + lastUpdated.toLocaleString();
+        }
+      }
+      
+      // Load data
+      if (existingData) {
+        loadExistingData(existingData);
+      } else {
+        // New setup - auto-populate club name if available
+        if (matchedClubName) {
+          document.getElementById('clubName').value = matchedClubName;
+        }
+        
+        // Add default court type
+        addCourtType();
+        
+        // Initialize operating hours
+        initializeOperatingHours();
+      }
+      
+      console.log('[Form] Initialization complete');
+    }
+    
+    // Generate time options in 30-minute increments
+    function generateTimeOptions() {
+      const options = [];
+      
+      for (let hour = 0; hour < 24; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+          const timeValue = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+          const displayHour = hour === 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+          const ampm = hour < 12 ? 'AM' : 'PM';
+          const displayTime = `${displayHour}:${minute.toString().padStart(2, '0')} ${ampm}`;
+          
+          options.push({
+            value: timeValue,
+            display: `${timeValue} (${displayTime})`
+          });
+        }
+      }
+      
+      // Add 24:00 for midnight
+      options.push({
+        value: '24:00',
+        display: '24:00 (12:00 AM Next Day)'
+      });
+      
+      return options;
+    }
+    
+    // Generate time select HTML
+    function generateTimeSelectHtml(selectedValue = '') {
+      let html = '<option value="">-- Select --</option>';
+      timeOptions.forEach(option => {
+        const selected = option.value === selectedValue ? 'selected' : '';
+        html += `<option value="${option.value}" ${selected}>${option.display}</option>`;
+      });
+      return html;
+    }
+    
+    // Add court type row
+    function addCourtType(type = '', count = '') {
+      const container = document.getElementById('courtTypesContainer');
+      const courtId = 'court_' + courtTypeCounter;
+      
+      const courtDiv = document.createElement('div');
+      courtDiv.id = courtId;
+      courtDiv.className = 'court-type-row';
+      
+      // Generate court type options
+      let courtTypeOptions = '<option value="">-- Select Type --</option>';
+      courtTypes.forEach(courtType => {
+        const selected = courtType === type ? 'selected' : '';
+        courtTypeOptions += `<option value="${courtType}" ${selected}>${courtType}</option>`;
+      });
+      
+      courtDiv.innerHTML = `
+        <div class="row align-items-center">
+          <div class="col-md-6">
+            <select id="${courtId}_type" class="form-select" required>
+              ${courtTypeOptions}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <input type="number" id="${courtId}_count" class="form-control" 
+                   placeholder="Number of courts" min="1" value="${count}" required>
+          </div>
+          <div class="col-md-3">
+            <button type="button" class="btn btn-danger btn-sm" 
+                    onclick="removeCourtType('${courtId}')">
+              <i class="bi bi-trash"></i> Remove
+            </button>
+          </div>
+        </div>
+      `;
+      
+      container.appendChild(courtDiv);
+      courtTypeCounter++;
+    }
+    
+    // Remove court type
+    function removeCourtType(courtId) {
+      const element = document.getElementById(courtId);
+      if (element) {
+        element.remove();
+      }
+      
+      // Ensure at least one court type remains
+      if (document.querySelectorAll('.court-type-row').length === 0) {
+        addCourtType();
+      }
+    }
+    
+    // Initialize operating hours
+    function initializeOperatingHours() {
+      const container = document.getElementById('operatingHoursContainer');
+      container.innerHTML = '';
+      
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      
+      days.forEach((day, index) => {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'day-row';
+        dayDiv.id = `day_${day}`;
+        
+        // Default copy options
+        let copyOptions = '<option value="">-- Select --</option>';
+        copyOptions += '<option value="custom">Custom Hours</option>';
+        copyOptions += '<option value="closed">Closed</option>';
+        
+        // Add copy from previous days
+        if (index > 0) {
+          for (let i = 0; i < index; i++) {
+            copyOptions += `<option value="copy_${days[i]}">Same as ${days[i]}</option>`;
+          }
+        }
+        
+        dayDiv.innerHTML = `
+          <div class="row align-items-center">
+            <div class="col-md-2">
+              <strong>${day}:</strong>
+            </div>
+            <div class="col-md-10">
+              <div id="${day}_config">
+                <select id="${day}_option" class="form-select" onchange="handleDayOptionChange('${day}')">
+                  ${copyOptions}
+                </select>
+                <div id="${day}_hours" style="display: none; margin-top: 10px;">
+                  <!-- Time blocks will be added here -->
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        
+        container.appendChild(dayDiv);
+        
+        // Set smart defaults for new setup
+        if (!isEditMode) {
+          if (day === 'Monday') {
+            document.getElementById(`${day}_option`).value = 'custom';
+            handleDayOptionChange(day);
+          } else if (['Tuesday', 'Wednesday', 'Thursday'].includes(day)) {
+            document.getElementById(`${day}_option`).value = 'copy_Monday';
+          }
+        }
+      });
+    }
+    
+    // Handle day option change
+    function handleDayOptionChange(day) {
+      const option = document.getElementById(`${day}_option`).value;
+      const hoursDiv = document.getElementById(`${day}_hours`);
+      
+      if (option === 'custom') {
+        hoursDiv.style.display = 'block';
+        if (hoursDiv.children.length === 0) {
+          addTimeBlock(day);
+        }
+      } else {
+        hoursDiv.style.display = 'none';
+      }
+      
+      // Update visual feedback
+      const dayRow = document.getElementById(`day_${day}`);
+      if (option === 'closed') {
+        dayRow.classList.add('closed-day');
+        dayRow.classList.remove('copied-day');
+      } else if (option.startsWith('copy_')) {
+        dayRow.classList.add('copied-day');
+        dayRow.classList.remove('closed-day');
+      } else {
+        dayRow.classList.remove('closed-day', 'copied-day');
+      }
+    }
+    
+    // Add time block
+    function addTimeBlock(day, startTime = '', endTime = '') {
+      const hoursDiv = document.getElementById(`${day}_hours`);
+      const blockId = `${day}_block_${hoursDiv.children.length}`;
+      
+      const blockDiv = document.createElement('div');
+      blockDiv.id = blockId;
+      blockDiv.className = 'time-block';
+      
+      blockDiv.innerHTML = `
+        <div class="row align-items-center">
+          <div class="col-md-4">
+            <select class="form-select time-select" id="${blockId}_start">
+              ${generateTimeSelectHtml(startTime)}
+            </select>
+          </div>
+          <div class="col-md-1 text-center">to</div>
+          <div class="col-md-4">
+            <select class="form-select time-select" id="${blockId}_end">
+              ${generateTimeSelectHtml(endTime)}
+            </select>
+          </div>
+          <div class="col-md-3">
+            ${hoursDiv.children.length > 0 ? 
+              `<button type="button" class="btn btn-danger btn-sm" 
+                       onclick="removeTimeBlock('${day}', '${blockId}')">
+                 <i class="bi bi-trash"></i>
+               </button>` : 
+              `<button type="button" class="btn btn-info btn-sm" 
+                       onclick="addTimeBlock('${day}')">
+                 <i class="bi bi-plus"></i> Add Break
+               </button>`
+            }
+          </div>
+        </div>
+      `;
+      
+      hoursDiv.appendChild(blockDiv);
+      
+      // Set default times for new blocks
+      if (!startTime && !endTime && hoursDiv.children.length === 1) {
+        document.getElementById(`${blockId}_start`).value = '06:00';
+        document.getElementById(`${blockId}_end`).value = '22:00';
+      }
+    }
+    
+    // Remove time block
+    function removeTimeBlock(day, blockId) {
+      const block = document.getElementById(blockId);
+      if (block) {
+        block.remove();
+      }
+      
+      // Ensure at least one block remains
+      const hoursDiv = document.getElementById(`${day}_hours`);
+      if (hoursDiv.children.length === 0) {
+        addTimeBlock(day);
+      }
+    }
+    
+    // Handle same hours for all days toggle
+    function handleSameHoursToggle() {
+      const isChecked = document.getElementById('sameHoursAllDays').checked;
+      const days = ['Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      
+      if (isChecked) {
+        // Copy Monday settings to all other days
+        days.forEach(day => {
+          document.getElementById(`${day}_option`).value = 'copy_Monday';
+          handleDayOptionChange(day);
+        });
+      }
+    }
+    
+    // Load existing data for edit mode
+    function loadExistingData(data) {
+      console.log('[Form] Loading existing data:', data);
+      
+      // Load club name
+      document.getElementById('clubName').value = data.clubName;
+      
+      // Load court types
+      document.getElementById('courtTypesContainer').innerHTML = '';
+      data.courtTypes.forEach(court => {
+        addCourtType(court.type, court.count);
+      });
+      
+      // Initialize operating hours structure
+      initializeOperatingHours();
+      
+      // Load operating hours
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      
+      days.forEach(day => {
+        const dayData = data.operatingHours[day];
+        if (!dayData) return;
+        
+        if (!dayData.isOpen) {
+          // Closed day
+          document.getElementById(`${day}_option`).value = 'closed';
+          handleDayOptionChange(day);
+        } else if (dayData.copiedFrom) {
+          // Copied from another day
+          document.getElementById(`${day}_option`).value = `copy_${dayData.copiedFrom}`;
+          handleDayOptionChange(day);
+        } else if (dayData.blocks && dayData.blocks.length > 0) {
+          // Custom hours with blocks
+          document.getElementById(`${day}_option`).value = 'custom';
+          handleDayOptionChange(day);
+          
+          // Clear default block and add actual blocks
+          document.getElementById(`${day}_hours`).innerHTML = '';
+          dayData.blocks.forEach(block => {
+            addTimeBlock(day, block.start, block.end);
+          });
+        }
+      });
+    }
+    
+    // Collect form data
+    function collectFormData() {
+      const formData = {
+        clubName: document.getElementById('clubName').value.trim(),
+        courtTypes: [],
+        operatingHours: {}
+      };
+      
+      // Collect court types
+      const courtRows = document.querySelectorAll('.court-type-row');
+      courtRows.forEach(row => {
+        const typeSelect = row.querySelector('select');
+        const countInput = row.querySelector('input[type="number"]');
+        
+        if (typeSelect.value && countInput.value) {
+          formData.courtTypes.push({
+            type: typeSelect.value,
+            count: parseInt(countInput.value, 10)
+          });
+        }
+      });
+      
+      // Collect operating hours
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      
+      days.forEach(day => {
+        const option = document.getElementById(`${day}_option`).value;
+        
+        if (option === 'closed') {
+          formData.operatingHours[day] = { isOpen: false };
+        } else if (option.startsWith('copy_')) {
+          const sourceDay = option.replace('copy_', '');
+          formData.operatingHours[day] = { copiedFrom: sourceDay };
+        } else if (option === 'custom') {
+          const blocks = [];
+          const hoursDiv = document.getElementById(`${day}_hours`);
+          
+          hoursDiv.querySelectorAll('.time-block').forEach(blockDiv => {
+            const startSelect = blockDiv.querySelector('select[id$="_start"]');
+            const endSelect = blockDiv.querySelector('select[id$="_end"]');
+            
+            if (startSelect.value && endSelect.value) {
+              blocks.push({
+                start: startSelect.value,
+                end: endSelect.value
+              });
+            }
+          });
+          
+          formData.operatingHours[day] = {
+            isOpen: true,
+            blocks: blocks
+          };
+        }
+      });
+      
+      return formData;
+    }
+    
+    // Submit form
+    function submitForm() {
+      console.log('[Form] Submitting');
+      
+      // Show loading
+      document.getElementById('loadingOverlay').style.display = 'flex';
+      document.getElementById('errorContainer').style.display = 'none';
+      
+      try {
+        const formData = collectFormData();
+        console.log('[Form] Collected data:', formData);
+        
+        // Send to server
+        google.script.run
+          .withSuccessHandler(handleSubmitSuccess)
+          .withFailureHandler(handleSubmitError)
+          .processClubData(formData);
+          
+      } catch (error) {
+        handleSubmitError(error.toString());
+      }
+    }
+    
+    // Handle successful submission
+    function handleSubmitSuccess(result) {
+      document.getElementById('loadingOverlay').style.display = 'none';
+      
+      if (result.success) {
+        alert(result.message || 'Club information saved successfully!');
+        closeForm();
+      } else {
+        showError(result.message || 'An error occurred while saving.');
+      }
+    }
+    
+    // Handle submission error
+    function handleSubmitError(error) {
+      document.getElementById('loadingOverlay').style.display = 'none';
+      showError('Error: ' + error);
+    }
+    
+    // Show error message
+    function showError(message) {
+      const errorContainer = document.getElementById('errorContainer');
+      errorContainer.innerHTML = message;
+      errorContainer.style.display = 'block';
+      errorContainer.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    // Close form
+    function closeForm() {
+      google.script.host.close();
+    }
+    
+    // Initialize when DOM is ready
+    document.addEventListener('DOMContentLoaded', initializeForm);
+  </script>
+</body>
+</html>
