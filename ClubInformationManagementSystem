@@ -118,6 +118,8 @@ const CHANGELOG_SHEET_NAME = 'ChangeLog';
 function showClubSetupForm() {
   console.log('🟢 [showClubSetupForm] Starting form initialization');
   
+  let matchedClubName = null;  // ADD THIS LINE at the beginning
+  
   try {
     // Step 1: Get spreadsheet name for auto-population
     console.log('📝 [showClubSetupForm] Step 1: Getting spreadsheet name');
