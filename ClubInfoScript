@@ -1,0 +1,1271 @@
+/**
+ * ====================================================================
+ * CLUB INFORMATION MANAGEMENT SYSTEM v4 - COMPLETE DEBUGGING VERSION
+ * ====================================================================
+ * 
+ * Created: May 31, 2025
+ * Platform: Google Apps Script (Google Sheets)
+ * 
+ * DEBUGGING VERSION: Added comprehensive console logging to identify errors
+ * 
+ * ====================================================================
+ */
+
+// Configuration
+const EXTERNAL_SPREADSHEET_ID = '1RM8CIt9sz9Eajo5bjGCTDy9FvMi1oSURH-nHDRw-Fns';
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Creates a menu item in Google Sheets to launch the club information form.
+ */
+function onOpen() {
+  console.log('🟢 onOpen() called');
+  try {
+    const menu = SpreadsheetApp.getUi().createMenu('Club Management')
+      .addItem('Enter Club Information', 'showClubInfoForm')
+      .addSeparator()
+      .addItem('Refresh Club Names Cache', 'refreshClubNamesCache');
+    menu.addToUi();
+    console.log('✅ onOpen() completed successfully');
+  } catch (error) {
+    console.error('❌ onOpen() failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Manual cache refresh function for when data needs updating
+ */
+function refreshClubNamesCache() {
+  console.log('🟢 refreshClubNamesCache() starting...');
+  try {
+    // Clear the cache
+    CacheService.getScriptCache().remove('club_names_cache');
+    
+    // Rebuild the cache
+    const clubNamesData = getClubNames();
+    
+    // Show success message
+    SpreadsheetApp.getUi().alert(`Club names cache refreshed. Found ${clubNamesData.clubs.length} clubs.`);
+    
+    console.log('✅ refreshClubNamesCache() completed successfully');
+    return clubNamesData;
+  } catch (error) {
+    console.error('❌ refreshClubNamesCache() failed:', error);
+    SpreadsheetApp.getUi().alert("Error refreshing cache: " + error.toString());
+    throw error;
+  }
+}
+
+/**
+ * Gets the current spreadsheet's name and cleans it up for lookup
+ */
+function getSpreadsheetName() {
+  console.log('📝 getSpreadsheetName() starting...');
+  
+  try {
+    console.log('🔍 Getting active spreadsheet...');
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    console.log('✅ Active spreadsheet obtained:', !!spreadsheet);
+    
+    console.log('🔍 Getting spreadsheet name...');
+    const name = spreadsheet.getName();
+    console.log('✅ Spreadsheet name obtained:', name);
+    
+    const result = {
+      raw: name,
+      clean: name.trim()
+    };
+    
+    console.log('✅ getSpreadsheetName() completed:', result);
+    return result;
+    
+  } catch (error) {
+    console.error('❌ ERROR in getSpreadsheetName():', error);
+    throw error;
+  }
+}
+
+/**
+ * Shows the club information form dialog with detailed debugging
+ */
+function showClubInfoForm() {
+  console.log('🟢 showClubInfoForm() starting...');
+  
+  try {
+    // Step 1: Get spreadsheet name
+    console.log('📝 Step 1: Getting spreadsheet name...');
+    const spreadsheetNameData = getSpreadsheetName();
+    console.log('✅ Step 1 completed. Spreadsheet name data:', spreadsheetNameData);
+    
+    // Step 2: Get club names
+    console.log('📝 Step 2: Getting club names...');
+    const clubNamesData = getClubNames();
+    console.log('✅ Step 2 completed. Club names count:', clubNamesData?.clubs?.length || 0);
+    
+    // Step 3: Create HTML template
+    console.log('📝 Step 3: Creating HTML template...');
+    const htmlTemplate = HtmlService.createTemplateFromFile('ClubInfoForm');
+    console.log('✅ Step 3 completed. HTML template created');
+    
+    // Step 4: Set template data
+    console.log('📝 Step 4: Setting template data...');
+    htmlTemplate.spreadsheetNameData = spreadsheetNameData;
+    htmlTemplate.clubNamesData = clubNamesData;
+    htmlTemplate.debugMode = true; // Enable debug mode for troubleshooting
+    console.log('✅ Step 4 completed. Template data set');
+    
+    // Step 5: Try server-side matching
+    console.log('📝 Step 5: Attempting server-side club name matching...');
+    let matchedClubName = null;
+    if (spreadsheetNameData && spreadsheetNameData.clean) {
+      console.log('🔍 Checking direct match for:', spreadsheetNameData.clean);
+      matchedClubName = clubNamesData.lookupTable[spreadsheetNameData.clean];
+      
+      if (!matchedClubName) {
+        console.log('🔍 No direct match, checking contains matching...');
+        for (const lookupValue of clubNamesData.allColumnC) {
+          if (spreadsheetNameData.clean.toLowerCase().includes(lookupValue.toLowerCase())) {
+            matchedClubName = clubNamesData.lookupTable[lookupValue];
+            console.log('🎯 Found contains match:', lookupValue, '->', matchedClubName);
+            break;
+          }
+        }
+      } else {
+        console.log('🎯 Found direct match:', matchedClubName);
+      }
+      
+      // Clean quotes
+      if (matchedClubName && typeof matchedClubName === 'string') {
+        const originalName = matchedClubName;
+        matchedClubName = matchedClubName.replace(/^["']|["']$/g, '');
+        if (originalName !== matchedClubName) {
+          console.log('🧹 Cleaned quotes from club name:', originalName, '->', matchedClubName);
+        }
+      }
+    }
+    console.log('✅ Step 5 completed. Matched club name:', matchedClubName);
+    
+    htmlTemplate.matchedClubName = matchedClubName;
+    
+    // Step 6: Evaluate template
+    console.log('📝 Step 6: Evaluating HTML template...');
+    const html = htmlTemplate.evaluate()
+      .setWidth(1000)
+      .setHeight(800)
+      .setTitle('Club Information Form');
+    console.log('✅ Step 6 completed. HTML evaluated successfully');
+    
+    // Step 7: Show dialog
+    console.log('📝 Step 7: Displaying modal dialog...');
+    SpreadsheetApp.getUi().showModalDialog(html, 'Club Information Form');
+    console.log('✅ Step 7 completed. Dialog displayed successfully');
+    
+    console.log('🎉 showClubInfoForm() completed successfully!');
+    
+  } catch (error) {
+    console.error('❌ CRITICAL ERROR in showClubInfoForm():', error);
+    console.error('❌ Error name:', error.name);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error stack:', error.stack);
+    
+    // Try to show an alert with the error details
+    try {
+      SpreadsheetApp.getUi().alert(`Error in showClubInfoForm(): ${error.name}: ${error.message}`);
+    } catch (alertError) {
+      console.error('❌ Could not even show error alert:', alertError);
+    }
+    
+    throw error;
+  }
+}
+
+/**
+ * Fetches club names and lookup values for auto-matching.
+ */
+function getClubNames() {
+  console.log('📝 getClubNames() starting...');
+  
+  const cacheKey = 'club_names_cache';
+  const cache = CacheService.getScriptCache();
+  
+  try {
+    // Check cache first
+    console.log('🔍 Checking cache...');
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      console.log('✅ Using cached club names data');
+      const parsed = JSON.parse(cached);
+      console.log('✅ Cache data parsed. Club count:', parsed.clubs?.length || 0);
+      return parsed;
+    }
+    
+    console.log('🔍 No cache found. Fetching fresh data from external spreadsheet...');
+    console.log('🔍 External spreadsheet ID:', EXTERNAL_SPREADSHEET_ID);
+    
+    // Access the external spreadsheet
+    console.log('🔍 Opening external spreadsheet...');
+    const externalSpreadsheet = SpreadsheetApp.openById(EXTERNAL_SPREADSHEET_ID);
+    console.log('✅ External spreadsheet opened');
+    
+    console.log('🔍 Getting Master sheet...');
+    const externalSheet = externalSpreadsheet.getSheetByName('Master');
+    console.log('✅ Master sheet obtained:', !!externalSheet);
+    
+    console.log('🔍 Getting data range A2:C140...');
+    const dataRange = externalSheet.getRange('A2:C140');
+    console.log('✅ Data range obtained');
+    
+    console.log('🔍 Getting values from range...');
+    const dataValues = dataRange.getValues();
+    console.log('✅ Data values obtained. Row count:', dataValues.length);
+    
+    // Create structured data
+    console.log('🔍 Processing data values...');
+    const clubData = [];
+    const lookupTable = {};
+    const allColumnC = [];
+    
+    dataValues.forEach(function(row, index) {
+      const clubName = row[0]; // Column A
+      const lookupValue = row[2]; // Column C
+      
+      if (index < 5) { // Log first few rows for debugging
+        console.log(`🔍 Row ${index + 2}: Club="${clubName}", Lookup="${lookupValue}"`);
+      }
+      
+      // Clean any quotes from club name
+      const cleanClubName = typeof clubName === 'string' ? clubName.replace(/^["']|["']$/g, '') : clubName;
+      
+      // Capture all Column C values
+      if (lookupValue && String(lookupValue).trim() !== '') {
+        allColumnC.push(String(lookupValue));
+      }
+      
+      // Process rows with valid data
+      if (cleanClubName && lookupValue && String(lookupValue).trim() !== '') {
+        clubData.push({
+          name: cleanClubName,
+          lookupId: String(lookupValue)
+        });
+        
+        // Add to lookup table with various normalizations
+        lookupTable[String(lookupValue)] = cleanClubName;
+        lookupTable[String(lookupValue).toLowerCase().trim()] = cleanClubName;
+      } else if (cleanClubName) {
+        // Club has no lookup ID but still add to dropdown
+        clubData.push({
+          name: cleanClubName,
+          lookupId: ''
+        });
+      }
+    });
+    
+    console.log('✅ Data processing completed:');
+    console.log('   - Club data entries:', clubData.length);
+    console.log('   - Lookup table entries:', Object.keys(lookupTable).length);
+    console.log('   - Column C values:', allColumnC.length);
+    
+    const result = {
+      clubs: clubData,
+      lookupTable: lookupTable,
+      allColumnC: allColumnC,
+      cachedAt: new Date().toISOString()
+    };
+    
+    // Cache the data for 6 hours
+    console.log('🔍 Caching data for 6 hours...');
+    cache.put(cacheKey, JSON.stringify(result), 21600);
+    console.log('✅ Data cached successfully');
+    
+    console.log('✅ getClubNames() completed successfully');
+    return result;
+    
+  } catch (error) {
+    console.error('❌ ERROR in getClubNames():', error);
+    console.error('❌ Error name:', error.name);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error stack:', error.stack);
+    
+    // Return error fallback
+    const fallback = {
+      clubs: [{name: 'Error loading club names: ' + error.message, lookupId: ''}],
+      lookupTable: {},
+      allColumnC: [],
+      error: error.toString()
+    };
+    
+    console.log('⚠️ Returning fallback data:', fallback);
+    return fallback;
+  }
+}
+
+/**
+ * Utility function to check cache status
+ */
+function checkCacheStatus() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get('club_names_cache');
+  
+  if (cached) {
+    const data = JSON.parse(cached);
+    return {
+      isCached: true,
+      clubCount: data.clubs.length,
+      cachedAt: data.cachedAt || 'Unknown'
+    };
+  } else {
+    return {
+      isCached: false,
+      clubCount: 0,
+      cachedAt: null
+    };
+  }
+}
+
+/**
+ * Gets the list of court types.
+ */
+function getCourtTypes() {
+  return ['Tennis', 'Padel', 'Pickleball', 'Squash', 'Football', 'Basketball'];
+}
+
+/**
+ * Gets default tier names for suggestions.
+ */
+function getDefaultTierNames() {
+  return [
+    // Traditional time-based tiers
+    'Peak', 
+    'Off-Peak',
+    'Standard',
+    'Premium',
+    'Economy',
+    
+    // Day-based tiers
+    'Weekend',
+    'Weekday',
+    'Weekday Morning',
+    'Weekday Afternoon',
+    'Weekend Morning',
+    'Weekend Evening',
+    'Business Hours',
+    'After Work',
+    
+    // Demand-based tiers
+    'Prime Time',
+    'Super Peak',
+    'Quiet Hours',
+    'Happy Hour',
+    
+    // Seasonal tiers
+    'Summer',
+    'Winter',
+    'Holiday',
+    'Special Event',
+    
+    // Experience-based tiers
+    'Elite',
+    'Casual',
+    'Family',
+    'Professional',
+    'Member',
+    'Non-Member',
+    
+    // Descriptive tiers
+    'Gold',
+    'Silver',
+    'Bronze',
+    'Platinum',
+    'Diamond'
+  ];
+}
+
+/**
+ * Main processing function for the tier-based system with 24:00 support.
+ */
+function processClubInfoV2(formData) {
+  try {
+    console.log('Processing club info v2 with 24:00 support:', formData);
+    
+    // Validate the data
+    const validation = validateFormData(formData);
+    if (!validation.valid) {
+      return {
+        success: false,
+        message: 'Validation Error:\n' + validation.errors.join('\n')
+      };
+    }
+    
+    // Process tier data to calculate operating hours and metrics
+    const processedData = processTierData(formData);
+    
+    // Create or update the ClubInfo sheet
+    const result = writeToSheet(formData, processedData);
+    
+    return result;
+  } catch (error) {
+    console.error('Error processing club info:', error);
+    return {
+      success: false,
+      message: 'Error: ' + error.toString()
+    };
+  }
+}
+
+/**
+ * Validates the form data with 24:00 support.
+ */
+function validateFormData(formData) {
+  const errors = [];
+  
+  // Validate basic info
+  if (!formData.clubName) errors.push('Club name is required');
+  if (!formData.courtType) errors.push('Court type is required');
+  if (!formData.numberOfCourts || formData.numberOfCourts < 1) errors.push('Number of courts must be at least 1');
+  
+  // Validate tiers
+  if (!formData.tiers || formData.tiers.length === 0) {
+    errors.push('At least one pricing tier is required');
+  } else {
+    formData.tiers.forEach((tier, index) => {
+      if (!tier.name) errors.push(`Tier ${index + 1}: Name is required`);
+      if (tier.price === undefined || tier.price < 0) errors.push(`Tier ${index + 1}: Valid price is required`);
+      
+      // Validate slots
+      if (!tier.slots || tier.slots.length === 0) {
+        errors.push(`Tier ${index + 1}: At least one time slot is required`);
+      } else {
+        tier.slots.forEach((slot, slotIndex) => {
+          if (!slot.day) errors.push(`Tier ${index + 1}, Slot ${slotIndex + 1}: Day is required`);
+          if (!slot.start) errors.push(`Tier ${index + 1}, Slot ${slotIndex + 1}: Start time is required`);
+          if (!slot.end) errors.push(`Tier ${index + 1}, Slot ${slotIndex + 1}: End time is required`);
+          
+          // Validate time format and increments
+          if (slot.start && !isValidTimeFormat(slot.start)) {
+            errors.push(`Tier ${index + 1}, Slot ${slotIndex + 1}: Invalid start time format`);
+          }
+          if (slot.end && !isValidTimeFormat(slot.end)) {
+            errors.push(`Tier ${index + 1}, Slot ${slotIndex + 1}: Invalid end time format`);
+          }
+          
+          if (slot.start && !isValid30MinIncrement(slot.start)) {
+            errors.push(`Tier ${index + 1}, Slot ${slotIndex + 1}: Start time must be in 30-minute increments`);
+          }
+          if (slot.end && !isValid30MinIncrement(slot.end)) {
+            errors.push(`Tier ${index + 1}, Slot ${slotIndex + 1}: End time must be in 30-minute increments`);
+          }
+          
+          // Time validation with 24:00 support
+          if (slot.start && slot.end) {
+            const startMinutes = timeToMinutes(slot.start);
+            const endMinutes = timeToMinutes(slot.end);
+            
+            if (startMinutes >= endMinutes) {
+              errors.push(`Tier ${index + 1}, Slot ${slotIndex + 1}: End time must be after start time. Use 24:00 for midnight.`);
+            }
+          }
+        });
+      }
+    });
+  }
+  
+  // Validate schedule integrity
+  const scheduleValidation = validateScheduleIntegrity(formData);
+  errors.push(...scheduleValidation.errors);
+  
+  return {
+    valid: errors.length === 0,
+    errors: errors
+  };
+}
+
+/**
+ * Validates schedule integrity with 24:00 support.
+ */
+function validateScheduleIntegrity(formData) {
+  const errors = [];
+  const schedule = buildDaySchedule(formData.tiers);
+  
+  DAYS.forEach(day => {
+    const daySlots = schedule[day];
+    if (!daySlots || daySlots.length === 0) return;
+    
+    // Sort slots by start time
+    daySlots.sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
+    
+    // Check for overlaps
+    for (let i = 0; i < daySlots.length - 1; i++) {
+      const current = daySlots[i];
+      const next = daySlots[i + 1];
+      
+      const currentStart = timeToMinutes(current.start);
+      const currentEnd = timeToMinutes(current.end);
+      const nextStart = timeToMinutes(next.start);
+      const nextEnd = timeToMinutes(next.end);
+      
+      if (currentStart < nextEnd && currentEnd > nextStart) {
+        errors.push(`${day}: Overlap detected between ${current.tierName} (${current.start}-${current.end}) and ${next.tierName} (${next.start}-${next.end})`);
+      }
+    }
+    
+    // Check for gaps when breaks not allowed
+    if (!formData.breakSettings[day] && daySlots.length > 1) {
+      for (let i = 0; i < daySlots.length - 1; i++) {
+        const current = daySlots[i];
+        const next = daySlots[i + 1];
+        
+        const currentEnd = timeToMinutes(current.end);
+        const nextStart = timeToMinutes(next.start);
+        
+        if (currentEnd < nextStart) {
+          errors.push(`${day}: Gap detected between ${current.end} and ${next.start}. No breaks allowed for this day.`);
+        }
+      }
+    }
+  });
+  
+  return { errors };
+}
+
+/**
+ * Process tier data with 24:00 support.
+ */
+function processTierData(formData) {
+  const schedule = buildDaySchedule(formData.tiers);
+  const result = {
+    operatingHours: {},
+    activeHours: {},
+    courtHours: {},
+    tierBreakdown: {},
+    weeklyTotals: {
+      activeHours: 0,
+      courtHours: 0,
+      byTier: {}
+    }
+  };
+  
+  // Initialize tier totals
+  formData.tiers.forEach(tier => {
+    result.weeklyTotals.byTier[tier.name] = 0;
+  });
+  
+  // Process each day
+  DAYS.forEach(day => {
+    const daySlots = schedule[day];
+    
+    if (!daySlots || daySlots.length === 0) {
+      result.operatingHours[day] = 'Closed';
+      result.activeHours[day] = 0;
+      result.courtHours[day] = 0;
+      result.tierBreakdown[day] = {};
+    } else {
+      // Calculate operating hours
+      result.operatingHours[day] = calculateOperatingHours(daySlots);
+      
+      // Calculate active hours
+      result.activeHours[day] = calculateActiveHours(daySlots);
+      result.courtHours[day] = result.activeHours[day] * formData.numberOfCourts;
+      
+      // Calculate tier breakdown
+      result.tierBreakdown[day] = calculateTierBreakdown(daySlots);
+      
+      // Add to weekly totals
+      result.weeklyTotals.activeHours += result.activeHours[day];
+      result.weeklyTotals.courtHours += result.courtHours[day];
+      
+      // Add to tier totals
+      for (const [tierName, hours] of Object.entries(result.tierBreakdown[day])) {
+        result.weeklyTotals.byTier[tierName] += hours;
+      }
+    }
+  });
+  
+  return result;
+}
+
+/**
+ * Build day schedule from tier data.
+ */
+function buildDaySchedule(tiers) {
+  const schedule = {};
+  
+  // Initialize empty arrays for each day
+  DAYS.forEach(day => {
+    schedule[day] = [];
+  });
+  
+  // Process each tier
+  tiers.forEach(tier => {
+    tier.slots.forEach(slot => {
+      const slotData = {
+        tierName: tier.name,
+        tierPrice: tier.price,
+        start: slot.start,
+        end: slot.end
+      };
+      
+      if (slot.day === 'Sunday-Thursday') {
+        // Add to all weekdays
+        ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'].forEach(day => {
+          schedule[day].push({...slotData});
+        });
+      } else {
+        // Add to specific day
+        schedule[slot.day].push({...slotData});
+      }
+    });
+  });
+  
+  return schedule;
+}
+
+/**
+ * Calculate operating hours with 24:00 support.
+ */
+function calculateOperatingHours(daySlots) {
+  if (daySlots.length === 0) return 'Closed';
+  
+  // Sort slots by start time
+  const sortedSlots = [...daySlots].sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
+  
+  const starts = sortedSlots.map(s => timeToMinutes(s.start));
+  const ends = sortedSlots.map(s => timeToMinutes(s.end));
+  
+  const dayStart = Math.min(...starts);
+  const dayEnd = Math.max(...ends);
+  
+  // Find breaks (gaps between consecutive slots)
+  const breaks = [];
+  for (let i = 0; i < sortedSlots.length - 1; i++) {
+    const currentEnd = timeToMinutes(sortedSlots[i].end);
+    const nextStart = timeToMinutes(sortedSlots[i + 1].start);
+    
+    if (nextStart > currentEnd) {
+      breaks.push({
+        start: sortedSlots[i].end,
+        end: sortedSlots[i + 1].start
+      });
+    }
+  }
+  
+  // Format operating hours
+  if (breaks.length === 0) {
+    return `${minutesToTime(dayStart)}-${minutesToTime(dayEnd)}`;
+  } else {
+    // Show as separate periods
+    const periods = [];
+    let periodStart = dayStart;
+    
+    breaks.forEach(breakPeriod => {
+      periods.push(`${minutesToTime(periodStart)}-${breakPeriod.start}`);
+      periodStart = timeToMinutes(breakPeriod.end);
+    });
+    periods.push(`${minutesToTime(periodStart)}-${minutesToTime(dayEnd)}`);
+    
+    return periods.join(', ');
+  }
+}
+
+/**
+ * Calculate total active hours with 24:00 support.
+ */
+function calculateActiveHours(daySlots) {
+  let totalMinutes = 0;
+  
+  daySlots.forEach(slot => {
+    const startMinutes = timeToMinutes(slot.start);
+    const endMinutes = timeToMinutes(slot.end);
+    totalMinutes += endMinutes - startMinutes;
+  });
+  
+  return totalMinutes / 60;
+}
+
+/**
+ * Calculate hours breakdown by tier with 24:00 support.
+ */
+function calculateTierBreakdown(daySlots) {
+  const breakdown = {};
+  
+  daySlots.forEach(slot => {
+    const startMinutes = timeToMinutes(slot.start);
+    const endMinutes = timeToMinutes(slot.end);
+    const hours = (endMinutes - startMinutes) / 60;
+    
+    if (!breakdown[slot.tierName]) {
+      breakdown[slot.tierName] = 0;
+    }
+    breakdown[slot.tierName] += hours;
+  });
+  
+  return breakdown;
+}
+
+/**
+ * Write processed data to the ClubInfo sheet with separate rows for time slots.
+ */
+function writeToSheet(formData, processedData) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName('ClubInfo');
+    
+    // Create the sheet if it doesn't exist
+    if (!sheet) {
+      sheet = ss.insertSheet('ClubInfo');
+    }
+    
+    // Clear the sheet
+    sheet.clear();
+    
+    // Set up the header
+    sheet.getRange(1, 1).setValue('CLUB INFORMATION SYSTEM V4');
+    sheet.getRange(1, 1, 1, 6).merge()
+      .setBackground('#1775AF')
+      .setFontColor('white')
+      .setFontSize(16)
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    
+    let row = 3;
+    
+    // Basic Information Section
+    sheet.getRange(row, 1).setValue('BASIC INFORMATION');
+    sheet.getRange(row, 1, 1, 6).setBackground('#d9ead3').setFontWeight('bold');
+    row++;
+    
+    sheet.getRange(row, 1).setValue('Club Name');
+    sheet.getRange(row, 2, 1, 2).merge().setValue(formData.clubName);
+    row++;
+    
+    sheet.getRange(row, 1).setValue('Court Type');
+    sheet.getRange(row, 2).setValue(formData.courtType);
+    sheet.getRange(row, 3).setValue('Number of Courts');
+    sheet.getRange(row, 4).setValue(formData.numberOfCourts);
+    
+    // Add No. of Tiers in E5 and count in F5
+    sheet.getRange(row, 5).setValue('No. of Tiers');
+    sheet.getRange(row, 6).setValue(formData.tiers.length);
+    
+    row += 2;
+    
+    // Daily Schedule & Tier Breakdown with separate rows for time slots
+    sheet.getRange(row, 1).setValue('DAILY SCHEDULE & TIER BREAKDOWN');
+    sheet.getRange(row, 1, 1, 9).setBackground('#c9daf8').setFontWeight('bold');
+    row++;
+    
+    // Headers
+    sheet.getRange(row, 1).setValue('Day');
+    sheet.getRange(row, 2).setValue('Operating Hours');
+    sheet.getRange(row, 3).setValue('Tier');
+    sheet.getRange(row, 4).setValue('Start');
+    sheet.getRange(row, 5).setValue('End');
+    sheet.getRange(row, 6).setValue('Hours');
+    sheet.getRange(row, 7).setValue('Total Hours');
+    sheet.getRange(row, 8).setValue('Court Hours');
+    sheet.getRange(row, 9).setValue('Break Setting');
+    sheet.getRange(row, 1, 1, 9).setFontWeight('bold').setBackground('#efefef');
+    row++;
+    
+    // Build complete schedule with all slots
+    const schedule = buildDaySchedule(formData.tiers);
+    
+    // Store day court hours for later summary
+    const dayCourtHours = {};
+    
+    // Process each day
+    DAYS.forEach(day => {
+      const daySlots = schedule[day] || [];
+      
+      if (daySlots.length === 0) {
+        // Day is closed
+        sheet.getRange(row, 1).setValue(day);
+        sheet.getRange(row, 2).setValue('Closed');
+        sheet.getRange(row, 3, 1, 4).merge().setValue('No operations');
+        sheet.getRange(row, 7).setValue(0);
+        sheet.getRange(row, 8).setValue(0);
+        sheet.getRange(row, 9).setValue('-');
+        sheet.getRange(row, 1, 1, 9).setBackground('#f8f8f8').setFontColor('#666');
+        
+        // Store court hours (0 for closed days)
+        dayCourtHours[day] = 0;
+        
+        row++;
+      } else {
+        // Sort slots by start time
+        const sortedSlots = [...daySlots].sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
+        
+        // Calculate operating hours for the day
+        const operatingHours = calculateOperatingHours(sortedSlots);
+        
+        // Group consecutive slots of the same tier
+        const groupedSlots = groupConsecutiveSlots(sortedSlots);
+        
+        // First slot row for the day
+        groupedSlots.forEach((slot, index) => {
+          const startMinutes = timeToMinutes(slot.start);
+          const endMinutes = timeToMinutes(slot.end);
+          const hours = (endMinutes - startMinutes) / 60;
+          
+          sheet.getRange(row, 1).setValue(index === 0 ? day : '');
+          sheet.getRange(row, 2).setValue(index === 0 ? operatingHours : '');
+          sheet.getRange(row, 3).setValue(slot.tierName);
+          sheet.getRange(row, 4).setValue(slot.start);
+          sheet.getRange(row, 5).setValue(slot.end);
+          sheet.getRange(row, 6).setValue(hours.toFixed(1));
+          
+          // Only show totals on first row of each day
+          if (index === 0) {
+            sheet.getRange(row, 7).setValue(processedData.activeHours[day].toFixed(1));
+            sheet.getRange(row, 8).setValue(processedData.courtHours[day].toFixed(1));
+            sheet.getRange(row, 9).setValue(formData.breakSettings[day] ? 'Allows breaks' : 'Continuous');
+            
+            // Store court hours for later summary
+            dayCourtHours[day] = processedData.courtHours[day];
+            
+            // Apply formatting to day name and operating hours
+            sheet.getRange(row, 1, 1, 2).setFontWeight('bold');
+            
+            // Highlight high activity days
+            if (processedData.activeHours[day] >= 12) {
+              sheet.getRange(row, 7, 1, 2).setBackground('#d4edda').setFontColor('#155724');
+            }
+          }
+          
+          // Color code by tier
+          const tierColor = getTierColor(slot.tierName);
+          if (tierColor) {
+            sheet.getRange(row, 3).setBackground(tierColor);
+          }
+          
+          row++;
+        });
+        
+        // Add a subtle separator line after each day
+        sheet.getRange(row - 1, 1, 1, 9).setBorder(
+          false, false, true, false, false, false,
+          '#cccccc', SpreadsheetApp.BorderStyle.DOTTED
+        );
+      }
+    });
+    
+    // Add extra space before weekly total
+    row++;
+    
+    // Weekly totals row
+    sheet.getRange(row, 1).setValue('WEEKLY TOTAL');
+    sheet.getRange(row, 2).setValue('All Days Combined');
+    sheet.getRange(row, 3, 1, 4).merge().setValue('See breakdown below');
+    sheet.getRange(row, 7).setValue(processedData.weeklyTotals.activeHours.toFixed(1));
+    sheet.getRange(row, 8).setValue(processedData.weeklyTotals.courtHours.toFixed(1));
+    sheet.getRange(row, 9).setValue('Average: ' + (processedData.weeklyTotals.activeHours / 7).toFixed(1) + 'h/day');
+    sheet.getRange(row, 1, 1, 9).setFontWeight('bold').setBackground('#f3f3f3');
+    
+    // Calculate weekday hours (Sunday to Thursday)
+    const weekdayHours = (dayCourtHours['Sunday'] || 0) + 
+                         (dayCourtHours['Monday'] || 0) + 
+                         (dayCourtHours['Tuesday'] || 0) + 
+                         (dayCourtHours['Wednesday'] || 0) + 
+                         (dayCourtHours['Thursday'] || 0);
+    
+    // Add day type summaries at SPECIFIC CELLS H24-I26
+    sheet.getRange('H24').setValue(weekdayHours.toFixed(1));
+    sheet.getRange('I24').setValue('Total Weekday Hours');
+    
+    sheet.getRange('H25').setValue((dayCourtHours['Friday'] || 0).toFixed(1));
+    sheet.getRange('I25').setValue('Total Friday Hours');
+    
+    sheet.getRange('H26').setValue((dayCourtHours['Saturday'] || 0).toFixed(1));
+    sheet.getRange('I26').setValue('Total Saturday Hours');
+    
+    // Format the day type summary cells
+    sheet.getRange('H24:I26').setFontWeight('bold');
+    
+    row += 2;
+    
+    // Pricing Tiers Summary Section
+    sheet.getRange(row, 1).setValue('PRICING TIERS SUMMARY');
+    sheet.getRange(row, 1, 1, 6).setBackground('#fce5cd').setFontWeight('bold');
+    row++;
+    
+    // Tier summary headers
+    sheet.getRange(row, 1).setValue('Tier Name');
+    sheet.getRange(row, 2).setValue('Price/Hour');
+    sheet.getRange(row, 3).setValue('Weekly Hours');
+    sheet.getRange(row, 4).setValue('% of Total');
+    sheet.getRange(row, 5).setValue('Weekly Revenue');
+    sheet.getRange(row, 1, 1, 5).setFontWeight('bold').setBackground('#efefef');
+    row++;
+    
+    // Calculate and display tier summaries
+    let totalWeeklyRevenue = 0;
+    formData.tiers.forEach(tier => {
+      const tierHours = processedData.weeklyTotals.byTier[tier.name] || 0;
+      const percentage = processedData.weeklyTotals.activeHours > 0 
+        ? (tierHours / processedData.weeklyTotals.activeHours * 100).toFixed(1) 
+        : 0;
+      const weeklyRevenue = tierHours * tier.price * formData.numberOfCourts;
+      totalWeeklyRevenue += weeklyRevenue;
+      
+      sheet.getRange(row, 1).setValue(tier.name);
+      sheet.getRange(row, 2).setValue(tier.price);
+      sheet.getRange(row, 3).setValue(tierHours.toFixed(1) + 'h');
+      sheet.getRange(row, 4).setValue(percentage + '%');
+      sheet.getRange(row, 5).setValue(weeklyRevenue.toFixed(0));
+      
+      // Apply tier color
+      const tierColor = getTierColor(tier.name);
+      if (tierColor) {
+        sheet.getRange(row, 1).setBackground(tierColor);
+      }
+      
+      row++;
+    });
+    
+    // Total revenue row
+    sheet.getRange(row, 1).setValue('TOTAL WEEKLY REVENUE');
+    sheet.getRange(row, 5).setValue(totalWeeklyRevenue.toFixed(0));
+    sheet.getRange(row, 1, 1, 5).setFontWeight('bold').setBackground('#fff2cc');
+    row += 2;
+    
+    // Time Format Notes
+    sheet.getRange(row, 1).setValue('TIME FORMAT NOTES');
+    sheet.getRange(row, 1, 1, 6).setBackground('#fff2cc').setFontWeight('bold');
+    row++;
+    sheet.getRange(row, 1, 1, 6).merge().setValue('24:00 represents midnight (end of current day). Times are in 30-minute increments.');
+    
+    // Format the sheet
+    sheet.autoResizeColumns(1, 9);
+    sheet.setColumnWidth(1, 100);  // Day column
+    sheet.setColumnWidth(2, 140);  // Operating Hours column
+    sheet.setColumnWidth(3, 100);  // Tier column
+    sheet.setColumnWidth(4, 70);   // Start column
+    sheet.setColumnWidth(5, 70);   // End column
+    sheet.setColumnWidth(6, 70);   // Hours column
+    sheet.setColumnWidth(7, 90);   // Total Hours column
+    sheet.setColumnWidth(8, 100);  // Court Hours column
+    sheet.setColumnWidth(9, 120);  // Break Setting column
+    
+    // Add borders
+    const dataRange = sheet.getRange(1, 1, row, 9);
+    dataRange.setBorder(true, true, true, true, true, true);
+    
+    return {
+      success: true,
+      message: 'Club information saved successfully!'
+    };
+  } catch (error) {
+    console.error('Error writing to sheet:', error);
+    throw error;
+  }
+}
+
+/**
+ * Helper function to group consecutive slots
+ */
+function groupConsecutiveSlots(sortedSlots) {
+  if (sortedSlots.length === 0) return [];
+  
+  const grouped = [];
+  let currentGroup = {
+    tierName: sortedSlots[0].tierName,
+    tierPrice: sortedSlots[0].tierPrice,
+    start: sortedSlots[0].start,
+    end: sortedSlots[0].end
+  };
+  
+  for (let i = 1; i < sortedSlots.length; i++) {
+    const slot = sortedSlots[i];
+    
+    // If same tier and consecutive times, extend the group
+    if (slot.tierName === currentGroup.tierName && 
+        timeToMinutes(currentGroup.end) === timeToMinutes(slot.start)) {
+      currentGroup.end = slot.end;
+    } else {
+      // Different tier or gap, save current group and start new one
+      grouped.push(currentGroup);
+      currentGroup = {
+        tierName: slot.tierName,
+        tierPrice: slot.tierPrice,
+        start: slot.start,
+        end: slot.end
+      };
+    }
+  }
+  
+  // Add the last group
+  grouped.push(currentGroup);
+  
+  return grouped;
+}
+
+/**
+ * Helper function to get consistent colors for tiers
+ */
+function getTierColor(tierName) {
+  const colors = {
+    'Economy': '#e8f5e9',
+    'Standard': '#e3f2fd',
+    'Premium': '#fce4ec',
+    'Peak': '#fff3e0',
+    'Off-Peak': '#f3e5f5',
+    'Weekend': '#fff9c4',
+    'Weekday': '#e0f2f1'
+  };
+  
+  return colors[tierName] || null;
+}
+
+// Helper Functions with 24:00 Support
+
+/**
+ * Convert time string to minutes since midnight with 24:00 support.
+ */
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  
+  // Handle 24:00 as 1440 minutes (end of current day)
+  if (timeStr === '24:00') return 1440;
+  
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+/**
+ * Convert minutes to time string with 24:00 support.
+ */
+function minutesToTime(minutes) {
+  // Handle 1440 minutes as 24:00
+  if (minutes === 1440) return '24:00';
+  
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Check if time is in valid format (HH:MM) including 24:00.
+ */
+function isValidTimeFormat(timeStr) {
+  if (!timeStr) return false;
+  
+  // Allow 24:00 specifically
+  if (timeStr === '24:00') return true;
+  
+  // Standard 24-hour format validation
+  const regex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+  return regex.test(timeStr);
+}
+
+/**
+ * Check if time is in 30-minute increments including 24:00.
+ */
+function isValid30MinIncrement(timeStr) {
+  if (!timeStr) return false;
+  
+  // 24:00 is valid (it's equivalent to 00 minutes)
+  if (timeStr === '24:00') return true;
+  
+  const minutes = parseInt(timeStr.split(':')[1]);
+  return minutes === 0 || minutes === 30;
+}
+
+// Test Functions
+
+/**
+ * Test function with 24:00 support.
+ */
+function testProcessClubInfo() {
+  const testData = {
+    clubName: "Test Tennis Club",
+    courtType: "Tennis",
+    numberOfCourts: 4,
+    breakSettings: {
+      "Sunday": false,
+      "Monday": false,
+      "Tuesday": false,
+      "Wednesday": false,
+      "Thursday": false,
+      "Friday": true,
+      "Saturday": true
+    },
+    tiers: [
+      {
+        name: "Economy",
+        price: 60,
+        slots: [
+          { day: "Sunday-Thursday", start: "06:00", end: "10:00" },
+          { day: "Sunday-Thursday", start: "18:00", end: "22:00" },
+          { day: "Friday", start: "06:00", end: "10:00" },
+          { day: "Saturday", start: "08:00", end: "12:00" }
+        ]
+      },
+      {
+        name: "Standard",
+        price: 80,
+        slots: [
+          { day: "Sunday-Thursday", start: "10:00", end: "18:00" },
+          { day: "Friday", start: "10:00", end: "18:00" },
+          { day: "Saturday", start: "12:00", end: "18:00" }
+        ]
+      },
+      {
+        name: "Premium",
+        price: 120,
+        slots: [
+          { day: "Friday", start: "18:00", end: "24:00" },
+          { day: "Saturday", start: "18:00", end: "24:00" }
+        ]
+      }
+    ]
+  };
+  
+  const result = processClubInfoV2(testData);
+  console.log('Test result:', result);
+  return result;
+}
+
+/**
+ * Test function to verify all components work
+ */
+function debugTest() {
+  console.log('🧪 Starting debugTest()...');
+  
+  try {
+    console.log('🧪 Testing getSpreadsheetName()...');
+    const nameData = getSpreadsheetName();
+    console.log('✅ getSpreadsheetName() works:', nameData);
+    
+    console.log('🧪 Testing getClubNames()...');
+    const clubData = getClubNames();
+    console.log('✅ getClubNames() works. Club count:', clubData.clubs.length);
+    
+    console.log('🧪 Testing HtmlService...');
+    const testTemplate = HtmlService.createTemplate('<html><body>Test</body></html>');
+    const testHtml = testTemplate.evaluate();
+    console.log('✅ HtmlService works');
+    
+    console.log('🧪 Testing UI access...');
+    const ui = SpreadsheetApp.getUi();
+    console.log('✅ UI access works');
+    
+    console.log('🎉 All components working! The issue might be in the HTML file content.');
+    
+  } catch (error) {
+    console.error('❌ debugTest() failed at:', error.message);
+    console.error('❌ Full error:', error);
+  }
+}
+
+/**
+ * Test function specifically for showClubInfoForm
+ */
+function testShowForm() {
+  console.log('🧪 Testing showClubInfoForm() step by step...');
+  showClubInfoForm();
+}
+
+/**
+ * Check what files exist in the project
+ */
+function listProjectFiles() {
+  console.log('📁 Attempting to list project files...');
+  try {
+    // This is a workaround to check if the HTML file exists
+    console.log('🔍 Testing if ClubInfoForm.html can be accessed...');
+    const testTemplate = HtmlService.createTemplateFromFile('ClubInfoForm');
+    console.log('✅ ClubInfoForm.html exists and is accessible');
+    
+    const testHtml = testTemplate.evaluate();
+    console.log('✅ ClubInfoForm.html can be evaluated as template');
+    
+  } catch (error) {
+    console.error('❌ File access error:', error);
+    console.error('💡 This suggests the ClubInfoForm.html file either:');
+    console.error('   1. Does not exist');
+    console.error('   2. Has invalid HTML syntax');
+    console.error('   3. Has a different name than expected');
+  }
+}
+
+/**
+ * Add this function to the end of your existing script
+ */
+function testSpreadsheetAccess() {
+  console.log('🧪 Testing spreadsheet access...');
+  
+  try {
+    // Test 1: Basic SpreadsheetApp access
+    console.log('📝 Test 1: SpreadsheetApp object...');
+    if (typeof SpreadsheetApp === 'undefined') {
+      console.error('❌ SpreadsheetApp is undefined');
+      return 'FAILED: SpreadsheetApp not available';
+    }
+    console.log('✅ SpreadsheetApp object exists');
+    
+    // Test 2: getActiveSpreadsheet method
+    console.log('📝 Test 2: getActiveSpreadsheet method...');
+    if (typeof SpreadsheetApp.getActiveSpreadsheet !== 'function') {
+      console.error('❌ getActiveSpreadsheet is not a function');
+      return 'FAILED: getActiveSpreadsheet method missing';
+    }
+    console.log('✅ getActiveSpreadsheet method exists');
+    
+    // Test 3: Actually call getActiveSpreadsheet
+    console.log('📝 Test 3: Calling getActiveSpreadsheet()...');
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    
+    if (!spreadsheet) {
+      console.error('❌ getActiveSpreadsheet returned null/undefined');
+      return 'FAILED: No active spreadsheet found';
+    }
+    
+    console.log('✅ getActiveSpreadsheet returned an object:', typeof spreadsheet);
+    
+    // Test 4: Check if it has getName method
+    console.log('📝 Test 4: getName method...');
+    if (typeof spreadsheet.getName !== 'function') {
+      console.error('❌ spreadsheet.getName is not a function');
+      return 'FAILED: getName method missing on spreadsheet object';
+    }
+    console.log('✅ getName method exists on spreadsheet');
+    
+    // Test 5: Actually get the name
+    console.log('📝 Test 5: Getting spreadsheet name...');
+    const name = spreadsheet.getName();
+    
+    if (name === null || name === undefined) {
+      console.error('❌ getName returned null/undefined');
+      return 'FAILED: Spreadsheet name is null/undefined';
+    }
+    
+    console.log('✅ Spreadsheet name retrieved:', name);
+    
+    // Test 6: Test trim operation
+    console.log('📝 Test 6: Testing trim operation...');
+    const trimmedName = name.trim();
+    console.log('✅ Trim operation successful:', trimmedName);
+    
+    // Test 7: Full getSpreadsheetName logic
+    console.log('📝 Test 7: Full getSpreadsheetName logic...');
+    const result = {
+      raw: name,
+      clean: trimmedName
+    };
+    
+    console.log('✅ getSpreadsheetName logic successful:', result);
+    console.log('🎉 ALL TESTS PASSED - Spreadsheet access is working!');
+    return 'SUCCESS: All spreadsheet tests passed';
+    
+  } catch (error) {
+    console.error('❌ ERROR in spreadsheet test:', error);
+    console.error('   Error name:', error.name);
+    console.error('   Error message:', error.message);
+    
+    return `FAILED: ${error.name}: ${error.message}`;
+  }
+}
+function basicTest() {
+  console.log('Hello');
+  return 'Working';
+}
