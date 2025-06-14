@@ -1,0 +1,1116 @@
+<!--
+====================================================================
+CLUB INFORMATION MANAGEMENT SYSTEM v4 - HTML FRONTEND INTERFACE
+====================================================================
+
+Created: May 31, 2025
+Platform: Google Apps Script HTML Dialog
+Framework: Bootstrap 5.2.3 + Custom JavaScript
+
+DESCRIPTION:
+This HTML interface provides a sophisticated form for managing club scheduling
+and pricing information. It integrates with Google Apps Script backend to
+create comprehensive club operation schedules with multiple pricing tiers,
+time slot management, and advanced validation features.
+
+UPDATES IN THIS VERSION:
+• Fixed first tier dropdown empty issue with proper async loading
+• Replaced text time inputs with user-friendly dropdown selectors
+• Added initialization tracking and status feedback
+• Enhanced time selection with dual format display
+• Improved error handling and user guidance
+
+====================================================================
+-->
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Club Information Form</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+  <!-- Custom CSS -->
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+    .container {
+      max-width: 960px;
+      background-color: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .form-header {
+      background-color: #1775AF;
+      color: white;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      text-align: center;
+    }
+    .section-header {
+      background-color: #e9ecef;
+      padding: 10px;
+      margin: 20px 0 10px 0;
+      border-radius: 5px;
+      font-weight: bold;
+    }
+    .tier-container {
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      padding: 15px;
+      margin-bottom: 15px;
+      background-color: #f8f9fa;
+    }
+    .tier-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .slot-container {
+      border: 1px solid #e0e0e0;
+      border-radius: 5px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background-color: #ffffff;
+    }
+    .form-buttons {
+      margin-top: 20px;
+      text-align: center;
+    }
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      color: white;
+      font-size: 24px;
+    }
+    .error-message {
+      color: #dc3545;
+      margin-top: 5px;
+      font-size: 14px;
+    }
+    .debug-info {
+      background-color: #f8d7da;
+      padding: 10px;
+      margin-top: 20px;
+      border-radius: 5px;
+      font-size: 12px;
+    }
+    .btn-group .btn {
+      margin-right: 4px;
+    }
+    .copy-slots, .paste-slots {
+      font-size: 0.8rem;
+    }
+    .time-select {
+      font-family: 'Courier New', monospace;
+    }
+    .initialization-status {
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="form-header">
+      <h2>Club Information Form</h2>
+    </div>
+    
+    <!-- Initialization Status -->
+    <div id="initializationStatus" class="initialization-status" style="display: none;">
+      <i class="bi bi-check-circle"></i> Form initialized successfully. All data loaded.
+    </div>
+    
+    <!-- Basic Information Section -->
+    <div class="section-header">
+      Basic Information
+    </div>
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <label for="clubName" class="form-label">Club Name:</label>
+        <input type="text" id="clubName" class="form-control" required>
+      </div>
+      <div class="col-md-6">
+        <label for="courtType" class="form-label">Court Type:</label>
+        <select id="courtType" class="form-select" required>
+          <option value="">-- Select Court Type --</option>
+          <!-- Court types will be populated by JavaScript -->
+        </select>
+      </div>
+    </div>
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <label for="numberOfCourts" class="form-label">Number of Courts:</label>
+        <input type="number" id="numberOfCourts" class="form-control" min="1" required>
+      </div>
+    </div>
+    
+    <!-- Break Settings Section -->
+    <div class="section-header">
+      Break Settings
+    </div>
+    <div class="row mb-3">
+      <div class="col-12">
+        <p>Select days that allow breaks in operation (gaps between time slots):</p>
+        <div class="row">
+          <div class="col-md-4">
+            <div class="form-check">
+              <input class="form-check-input break-setting" type="checkbox" id="breakSunday" value="Sunday">
+              <label class="form-check-label" for="breakSunday">Sunday</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input break-setting" type="checkbox" id="breakMonday" value="Monday">
+              <label class="form-check-label" for="breakMonday">Monday</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input break-setting" type="checkbox" id="breakTuesday" value="Tuesday">
+              <label class="form-check-label" for="breakTuesday">Tuesday</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="form-check">
+              <input class="form-check-input break-setting" type="checkbox" id="breakWednesday" value="Wednesday">
+              <label class="form-check-label" for="breakWednesday">Wednesday</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input break-setting" type="checkbox" id="breakThursday" value="Thursday">
+              <label class="form-check-label" for="breakThursday">Thursday</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input break-setting" type="checkbox" id="breakFriday" value="Friday">
+              <label class="form-check-label" for="breakFriday">Friday</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="form-check">
+              <input class="form-check-input break-setting" type="checkbox" id="breakSaturday" value="Saturday">
+              <label class="form-check-label" for="breakSaturday">Saturday</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Pricing Tiers Section -->
+    <div class="section-header">
+      Pricing Tiers
+    </div>
+    <div class="alert alert-info">
+      <small>
+        Add pricing tiers for different times of day/week. Each tier needs at least one time slot.
+        <br>You can use the 'Sunday-Thursday' option to quickly apply the same schedule to all weekdays.
+        <br>Use 24:00 to represent midnight (end of the day).
+        <br><strong>Time inputs now use dropdown menus with 30-minute increments for easier selection.</strong>
+      </small>
+    </div>
+    
+    <!-- Slot Copy Tools -->
+    <div class="row mb-3">
+      <div class="col-12">
+        <div class="card bg-light">
+          <div class="card-body">
+            <h6 class="card-title">Time Slot Tools</h6>
+            <div class="btn-group">
+              <button type="button" id="invertSlotsBtn" class="btn btn-outline-secondary btn-sm" title="Create complementary schedule from copied slots">
+                <i class="bi bi-arrow-repeat"></i> Create Inverse Schedule
+              </button>
+              <button type="button" id="clearCopiedSlotsBtn" class="btn btn-outline-secondary btn-sm" title="Clear the clipboard">
+                <i class="bi bi-trash"></i> Clear Copied Slots
+              </button>
+            </div>
+            <small class="text-muted d-block mt-2">Copy slots from one tier, then paste them to another. Use "Create Inverse Schedule" to generate complementary time slots.</small>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="tiersContainer">
+      <!-- Pricing tiers will be added here by JavaScript -->
+    </div>
+    <div class="row mb-3">
+      <div class="col-12">
+        <button type="button" id="addTierBtn" class="btn btn-success">Add Pricing Tier</button>
+      </div>
+    </div>
+    
+    <!-- Form Buttons -->
+    <div class="form-buttons">
+      <button type="button" id="submitBtn" class="btn btn-primary">Save Club Information</button>
+      <button type="button" id="cancelBtn" class="btn btn-secondary">Cancel</button>
+    </div>
+    
+    <div id="errorContainer" class="alert alert-danger mt-3" style="display: none;"></div>
+    
+    <!-- Debug Information (hidden in production) -->
+    <?!= debugMode ? '<div class="debug-info"><h5>Debug Info:</h5><pre id="debugInfo"></pre></div>' : '' ?>
+  </div>
+  
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+    <div>
+      <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <div>Processing...</div>
+    </div>
+  </div>
+  
+  <!-- Bootstrap Bundle with Popper -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+  
+  <!-- Main Form Script -->
+  <script>
+    // Global variables
+    let defaultTierNames = [];
+    let courtTypes = [];
+    let clubNamesData = {};
+    let tiers = [];
+    let tierCounter = 0;
+    let copiedSlots = null; // To store copied time slots
+    let timeOptions = []; // Store generated time options
+    let isFormInitialized = false; // Track initialization status
+    
+    // Generate time options in 30-minute increments
+    function generateTimeOptions() {
+      const options = [];
+      
+      for (let hour = 0; hour < 24; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+          const timeValue = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+          const displayHour = hour === 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+          const ampm = hour < 12 ? 'AM' : 'PM';
+          const displayTime = `${displayHour}:${minute.toString().padStart(2, '0')} ${ampm}`;
+          
+          options.push({
+            value: timeValue,
+            display: `${timeValue} (${displayTime})`
+          });
+        }
+      }
+      
+      // Add 24:00 for midnight (end of day)
+      options.push({
+        value: '24:00',
+        display: '24:00 (12:00 AM Next Day)'
+      });
+      
+      return options;
+    }
+    
+    // Generate HTML for time select options
+    function generateTimeOptionsHtml() {
+      let html = '<option value="">-- Select Time --</option>';
+      timeOptions.forEach(option => {
+        html += `<option value="${option.value}">${option.display}</option>`;
+      });
+      return html;
+    }
+    
+    // Initialize the form with proper async handling
+    function initializeForm() {
+      console.log('Starting form initialization...');
+      
+      // Generate time options
+      timeOptions = generateTimeOptions();
+      
+      // Set up event listeners first
+      document.getElementById('addTierBtn').addEventListener('click', addNewTier);
+      document.getElementById('submitBtn').addEventListener('click', submitForm);
+      document.getElementById('cancelBtn').addEventListener('click', closeForm);
+      document.getElementById('invertSlotsBtn').addEventListener('click', invertTimeSlots);
+      document.getElementById('clearCopiedSlotsBtn').addEventListener('click', function() {
+        copiedSlots = null;
+        alert('Copied slots cleared.');
+      });
+      
+      // Load all required data before proceeding
+      let defaultTierNamesLoaded = false;
+      let courtTypesLoaded = false;
+      let clubNamesLoaded = false;
+      
+      function checkIfAllDataLoaded() {
+        if (defaultTierNamesLoaded && courtTypesLoaded && clubNamesLoaded && !isFormInitialized) {
+          console.log('All data loaded, finalizing form initialization...');
+          isFormInitialized = true;
+          
+          // Show initialization status
+          const statusElement = document.getElementById('initializationStatus');
+          if (statusElement) {
+            statusElement.style.display = 'block';
+            setTimeout(() => {
+              statusElement.style.display = 'none';
+            }, 3000);
+          }
+          
+          // Now safe to add the first tier with all data loaded
+          addNewTier();
+          
+          // Attempt auto-population
+          setTimeout(autoPopulateClubName, 300);
+          
+          // Log debug info if in debug mode
+          <?!= debugMode ? 'logDebugInfo();' : '' ?>
+        }
+      }
+      
+      // Fetch default tier names
+      google.script.run
+        .withSuccessHandler(function(result) {
+          handleDefaultTierNames(result);
+          defaultTierNamesLoaded = true;
+          checkIfAllDataLoaded();
+        })
+        .withFailureHandler(function(error) {
+          handleError(error);
+          defaultTierNamesLoaded = true; // Continue even if failed
+          checkIfAllDataLoaded();
+        })
+        .getDefaultTierNames();
+      
+      // Fetch court types
+      google.script.run
+        .withSuccessHandler(function(result) {
+          handleCourtTypes(result);
+          courtTypesLoaded = true;
+          checkIfAllDataLoaded();
+        })
+        .withFailureHandler(function(error) {
+          handleError(error);
+          courtTypesLoaded = true; // Continue even if failed
+          checkIfAllDataLoaded();
+        })
+        .getCourtTypes();
+      
+      // Club names are loaded separately in the main initialization
+      clubNamesLoaded = true; // Will be set properly when club names load
+    }
+    
+    // Handle default tier names response
+    function handleDefaultTierNames(result) {
+      defaultTierNames = result || ['Peak', 'Standard', 'Off-Peak', 'Weekend', 'Weekday', 'Premium', 'Economy'];
+      console.log('Default tier names loaded:', defaultTierNames.length);
+    }
+    
+    // Handle court types response
+    function handleCourtTypes(result) {
+      courtTypes = result || ['Tennis', 'Padel', 'Pickleball', 'Squash', 'Football', 'Basketball'];
+      populateCourtTypes();
+      console.log('Court types loaded:', courtTypes.length);
+    }
+    
+    // Populate court types dropdown
+    function populateCourtTypes() {
+      const courtTypeSelect = document.getElementById('courtType');
+      courtTypeSelect.innerHTML = '<option value="">-- Select Court Type --</option>';
+      
+      courtTypes.forEach(type => {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = type;
+        courtTypeSelect.appendChild(option);
+      });
+    }
+    
+    // Add a new pricing tier with improved tier name handling
+    function addNewTier() {
+      if (!isFormInitialized) {
+        console.warn('Attempted to add tier before form initialization complete');
+        return;
+      }
+      
+      const tiersContainer = document.getElementById('tiersContainer');
+      const tierId = 'tier_' + tierCounter;
+      
+      // Create tier container
+      const tierDiv = document.createElement('div');
+      tierDiv.id = tierId;
+      tierDiv.className = 'tier-container';
+      
+      // Generate tier name options - now guaranteed to have data
+      let tierOptionsHtml = '<option value="">-- Select Tier Name --</option>';
+      defaultTierNames.forEach(name => {
+        tierOptionsHtml += `<option value="${name}">${name}</option>`;
+      });
+      tierOptionsHtml += '<option value="custom">Custom...</option>';
+      
+      // Create tier HTML
+      tierDiv.innerHTML = `
+        <div class="tier-header">
+          <h5>Pricing Tier ${tierCounter + 1}</h5>
+          <div class="btn-group">
+            <button type="button" class="btn btn-outline-info btn-sm copy-slots" data-tier-id="${tierId}" title="Copy all time slots from this tier">
+              <i class="bi bi-clipboard"></i> Copy Slots
+            </button>
+            <button type="button" class="btn btn-outline-success btn-sm paste-slots" data-tier-id="${tierId}" title="Paste copied time slots to this tier">
+              <i class="bi bi-clipboard-check"></i> Paste Slots
+            </button>
+            <button type="button" class="btn btn-danger btn-sm remove-tier" data-tier-id="${tierId}">Remove</button>
+          </div>
+        </div>
+        <div class="row mb-3">
+          <div class="col-md-6">
+            <label for="${tierId}_name" class="form-label">Tier Name:</label>
+            <select id="${tierId}_name" class="form-select tier-name" required>
+              ${tierOptionsHtml}
+            </select>
+            <div id="${tierId}_custom_container" style="display: none; margin-top: 10px;">
+              <input type="text" id="${tierId}_custom_name" class="form-control" placeholder="Enter custom tier name">
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label for="${tierId}_price" class="form-label">Price/Hour:</label>
+            <input type="number" id="${tierId}_price" class="form-control tier-price" min="0" step="1" required>
+          </div>
+        </div>
+        
+        <div class="row mb-3">
+          <div class="col-12">
+            <label class="form-label">Time Slots:</label>
+            <div class="alert alert-light">
+              <small>Add time slots for this pricing tier. Select times from dropdown menus (30-minute increments only).</small>
+            </div>
+            <div id="${tierId}_slots" class="slots-container">
+              <!-- Slots will be added here -->
+            </div>
+            <button type="button" class="btn btn-info btn-sm add-slot" data-tier-id="${tierId}">Add Time Slot</button>
+          </div>
+        </div>
+      `;
+      
+      tiersContainer.appendChild(tierDiv);
+      
+      // Add event listeners
+      tierDiv.querySelector('.remove-tier').addEventListener('click', function() {
+        removeTier(this.getAttribute('data-tier-id'));
+      });
+      
+      tierDiv.querySelector('.add-slot').addEventListener('click', function() {
+        addTimeSlot(this.getAttribute('data-tier-id'));
+      });
+      
+      // Add event listeners for copy/paste functionality
+      tierDiv.querySelector('.copy-slots').addEventListener('click', function() {
+        copyTimeSlots(this.getAttribute('data-tier-id'));
+      });
+      
+      tierDiv.querySelector('.paste-slots').addEventListener('click', function() {
+        pasteTimeSlots(this.getAttribute('data-tier-id'));
+      });
+      
+      // Add event listener for custom tier name
+      const tierNameSelect = document.getElementById(`${tierId}_name`);
+      const customContainer = document.getElementById(`${tierId}_custom_container`);
+      const customNameInput = document.getElementById(`${tierId}_custom_name`);
+      
+      tierNameSelect.addEventListener('change', function() {
+        if (this.value === 'custom') {
+          customContainer.style.display = 'block';
+          customNameInput.focus();
+        } else {
+          customContainer.style.display = 'none';
+        }
+      });
+      
+      // Default to first tier name (now guaranteed to exist)
+      if (defaultTierNames.length > 0) {
+        tierNameSelect.value = defaultTierNames[tierCounter % defaultTierNames.length];
+      }
+      
+      // Add one initial slot
+      addTimeSlot(tierId);
+      
+      tierCounter++;
+    }
+    
+    // Remove a pricing tier
+    function removeTier(tierId) {
+      const tierElement = document.getElementById(tierId);
+      if (tierElement) {
+        tierElement.remove();
+      }
+      
+      // If all tiers are removed, add one back
+      if (document.querySelectorAll('.tier-container').length === 0) {
+        addNewTier();
+      }
+    }
+    
+    // Add a time slot to a tier with improved time selects
+    function addTimeSlot(tierId) {
+      const slotsContainer = document.getElementById(`${tierId}_slots`);
+      const slotId = `${tierId}_slot_${slotsContainer.children.length}`;
+      
+      const slotDiv = document.createElement('div');
+      slotDiv.id = slotId;
+      slotDiv.className = 'slot-container';
+      
+      const timeOptionsHtml = generateTimeOptionsHtml();
+      
+      slotDiv.innerHTML = `
+        <div class="row">
+          <div class="col-md-4">
+            <label for="${slotId}_day" class="form-label">Day:</label>
+            <select id="${slotId}_day" class="form-select slot-day" required>
+              <option value="">-- Select Day --</option>
+              <option value="Sunday-Thursday">Sunday-Thursday</option>
+              <option value="Sunday">Sunday</option>
+              <option value="Monday">Monday</option>
+              <option value="Tuesday">Tuesday</option>
+              <option value="Wednesday">Wednesday</option>
+              <option value="Thursday">Thursday</option>
+              <option value="Friday">Friday</option>
+              <option value="Saturday">Saturday</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label for="${slotId}_start" class="form-label">Start Time:</label>
+            <select id="${slotId}_start" class="form-select slot-start time-select" required>
+              ${timeOptionsHtml}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label for="${slotId}_end" class="form-label">End Time:</label>
+            <select id="${slotId}_end" class="form-select slot-end time-select" required>
+              ${timeOptionsHtml}
+            </select>
+          </div>
+          <div class="col-md-2 d-flex align-items-end mb-3">
+            <button type="button" class="btn btn-danger btn-sm remove-slot" data-slot-id="${slotId}">Remove</button>
+          </div>
+        </div>
+      `;
+      
+      slotsContainer.appendChild(slotDiv);
+      
+      // Add event listener for remove button
+      slotDiv.querySelector('.remove-slot').addEventListener('click', function() {
+        removeTimeSlot(this.getAttribute('data-slot-id'));
+      });
+    }
+    
+    // Remove a time slot
+    function removeTimeSlot(slotId) {
+      const slotElement = document.getElementById(slotId);
+      if (slotElement) {
+        slotElement.remove();
+      }
+    }
+    
+    // Copy time slots from a tier
+    function copyTimeSlots(tierId) {
+      const slotsContainer = document.getElementById(`${tierId}_slots`);
+      const slotElements = slotsContainer.querySelectorAll('.slot-container');
+      
+      copiedSlots = [];
+      
+      slotElements.forEach(slotElement => {
+        const slotId = slotElement.id;
+        const daySelect = document.getElementById(`${slotId}_day`);
+        const startSelect = document.getElementById(`${slotId}_start`);
+        const endSelect = document.getElementById(`${slotId}_end`);
+        
+        if (daySelect.value && startSelect.value && endSelect.value) {
+          copiedSlots.push({
+            day: daySelect.value,
+            start: startSelect.value,
+            end: endSelect.value
+          });
+        }
+      });
+      
+      // Show feedback to user
+      if (copiedSlots.length > 0) {
+        alert(`Copied ${copiedSlots.length} time slot(s) successfully.`);
+      } else {
+        alert('No valid time slots to copy.');
+      }
+    }
+    
+    // Paste time slots to a tier
+    function pasteTimeSlots(tierId) {
+      if (!copiedSlots || copiedSlots.length === 0) {
+        alert('No time slots have been copied yet.');
+        return;
+      }
+      
+      // Ask user if they want to replace or append
+      const action = confirm('Do you want to replace existing time slots? Click OK to replace, or Cancel to append.');
+      
+      const slotsContainer = document.getElementById(`${tierId}_slots`);
+      
+      // Clear existing slots if replacing
+      if (action) {
+        slotsContainer.innerHTML = '';
+      }
+      
+      // Add the copied slots
+      copiedSlots.forEach(slot => {
+        const slotId = `${tierId}_slot_${slotsContainer.children.length}`;
+        
+        const slotDiv = document.createElement('div');
+        slotDiv.id = slotId;
+        slotDiv.className = 'slot-container';
+        
+        const timeOptionsHtml = generateTimeOptionsHtml();
+        
+        slotDiv.innerHTML = `
+          <div class="row">
+            <div class="col-md-4">
+              <label for="${slotId}_day" class="form-label">Day:</label>
+              <select id="${slotId}_day" class="form-select slot-day" required>
+                <option value="">-- Select Day --</option>
+                <option value="Sunday-Thursday"${slot.day === 'Sunday-Thursday' ? ' selected' : ''}>Sunday-Thursday</option>
+                <option value="Sunday"${slot.day === 'Sunday' ? ' selected' : ''}>Sunday</option>
+                <option value="Monday"${slot.day === 'Monday' ? ' selected' : ''}>Monday</option>
+                <option value="Tuesday"${slot.day === 'Tuesday' ? ' selected' : ''}>Tuesday</option>
+                <option value="Wednesday"${slot.day === 'Wednesday' ? ' selected' : ''}>Wednesday</option>
+                <option value="Thursday"${slot.day === 'Thursday' ? ' selected' : ''}>Thursday</option>
+                <option value="Friday"${slot.day === 'Friday' ? ' selected' : ''}>Friday</option>
+                <option value="Saturday"${slot.day === 'Saturday' ? ' selected' : ''}>Saturday</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label for="${slotId}_start" class="form-label">Start Time:</label>
+              <select id="${slotId}_start" class="form-select slot-start time-select" required>
+                ${timeOptionsHtml}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label for="${slotId}_end" class="form-label">End Time:</label>
+              <select id="${slotId}_end" class="form-select slot-end time-select" required>
+                ${timeOptionsHtml}
+              </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end mb-3">
+              <button type="button" class="btn btn-danger btn-sm remove-slot" data-slot-id="${slotId}">Remove</button>
+            </div>
+          </div>
+        `;
+        
+        slotsContainer.appendChild(slotDiv);
+        
+        // Set the selected values after adding the HTML
+        document.getElementById(`${slotId}_start`).value = slot.start;
+        document.getElementById(`${slotId}_end`).value = slot.end;
+        
+        // Add event listener for remove button
+        slotDiv.querySelector('.remove-slot').addEventListener('click', function() {
+          removeTimeSlot(this.getAttribute('data-slot-id'));
+        });
+      });
+      
+      alert(`Pasted ${copiedSlots.length} time slot(s) successfully.`);
+    }
+    
+    // Add a special function to invert times (complementary schedule)
+    function invertTimeSlots() {
+      if (!copiedSlots || copiedSlots.length === 0) {
+        alert('No time slots have been copied yet.');
+        return;
+      }
+      
+      // Create a new array for inverted slots
+      const invertedSlots = [];
+      
+      // Create a map to store the time ranges by day
+      const dayRanges = {};
+      
+      // Group slots by day
+      copiedSlots.forEach(slot => {
+        if (!dayRanges[slot.day]) {
+          dayRanges[slot.day] = [];
+        }
+        dayRanges[slot.day].push({
+          start: slot.start,
+          end: slot.end
+        });
+      });
+      
+      // Process each day
+      for (const [day, ranges] of Object.entries(dayRanges)) {
+        // Sort ranges by start time
+        ranges.sort((a, b) => {
+          return timeToMinutes(a.start) - timeToMinutes(b.start);
+        });
+        
+        // Find gaps
+        let lastEnd = "00:00";
+        
+        for (let i = 0; i < ranges.length; i++) {
+          const range = ranges[i];
+          
+          // Check if there's a gap between lastEnd and this range's start
+          if (timeToMinutes(lastEnd) < timeToMinutes(range.start)) {
+            invertedSlots.push({
+              day: day,
+              start: lastEnd,
+              end: range.start
+            });
+          }
+          
+          // Update lastEnd
+          if (timeToMinutes(range.end) > timeToMinutes(lastEnd)) {
+            lastEnd = range.end;
+          }
+        }
+        
+        // Check if there's a gap from the last end to midnight
+        if (timeToMinutes(lastEnd) < timeToMinutes("24:00")) {
+          invertedSlots.push({
+            day: day,
+            start: lastEnd,
+            end: "24:00"
+          });
+        }
+      }
+      
+      // Replace copiedSlots with invertedSlots
+      copiedSlots = invertedSlots;
+      
+      alert(`Created ${invertedSlots.length} inverted time slot(s). Use "Paste Slots" to apply them to a tier.`);
+    }
+    
+    // Helper function to convert time string to minutes
+    function timeToMinutes(timeStr) {
+      // Special case for midnight
+      if (timeStr === "24:00") {
+        return 24 * 60;
+      }
+      
+      const [hours, minutes] = timeStr.split(":").map(Number);
+      return hours * 60 + minutes;
+    }
+    
+    // Submit the form
+    function submitForm() {
+      // Show loading overlay
+      document.getElementById('loadingOverlay').style.display = 'flex';
+      
+      // Clear previous errors
+      document.getElementById('errorContainer').style.display = 'none';
+      
+      try {
+        // Gather form data
+        const formData = {
+          clubName: document.getElementById('clubName').value.trim(),
+          courtType: document.getElementById('courtType').value,
+          numberOfCourts: parseInt(document.getElementById('numberOfCourts').value, 10),
+          breakSettings: getBreakSettings(),
+          tiers: collectTierData()
+        };
+        
+        // Client-side validation
+        const validationResult = validateForm(formData);
+        if (!validationResult.valid) {
+          showError(validationResult.errors.join('<br>'));
+          document.getElementById('loadingOverlay').style.display = 'none';
+          return;
+        }
+        
+        // Submit data to server
+        google.script.run
+          .withSuccessHandler(handleSubmitSuccess)
+          .withFailureHandler(handleSubmitError)
+          .processClubInfoV2(formData);
+          
+      } catch (error) {
+        handleSubmitError(error.toString());
+      }
+    }
+    
+    // Get break settings
+    function getBreakSettings() {
+      const breakSettings = {};
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      
+      days.forEach(day => {
+        breakSettings[day] = document.getElementById(`break${day}`).checked;
+      });
+      
+      return breakSettings;
+    }
+    
+    // Collect tier data from form
+    function collectTierData() {
+      const tiers = [];
+      const tierContainers = document.querySelectorAll('.tier-container');
+      
+      tierContainers.forEach(tierContainer => {
+        const tierId = tierContainer.id;
+        const tierNameSelect = document.getElementById(`${tierId}_name`);
+        let tierName = tierNameSelect.value;
+        
+        // Check for custom tier name
+        if (tierName === 'custom') {
+          tierName = document.getElementById(`${tierId}_custom_name`).value.trim();
+        }
+        
+        const tierPrice = parseFloat(document.getElementById(`${tierId}_price`).value);
+        
+        const slots = [];
+        const slotContainers = tierContainer.querySelectorAll('.slot-container');
+        
+        slotContainers.forEach(slotContainer => {
+          const slotId = slotContainer.id;
+          const daySelect = document.getElementById(`${slotId}_day`);
+          const startSelect = document.getElementById(`${slotId}_start`);
+          const endSelect = document.getElementById(`${slotId}_end`);
+          
+          if (daySelect.value && startSelect.value && endSelect.value) {
+            slots.push({
+              day: daySelect.value,
+              start: startSelect.value,
+              end: endSelect.value
+            });
+          }
+        });
+        
+        if (tierName && !isNaN(tierPrice) && slots.length > 0) {
+          tiers.push({
+            name: tierName,
+            price: tierPrice,
+            slots: slots
+          });
+        }
+      });
+      
+      return tiers;
+    }
+    
+    // Basic client-side validation
+    function validateForm(formData) {
+      const errors = [];
+      
+      // Basic info
+      if (!formData.clubName) errors.push('Club name is required');
+      if (!formData.courtType) errors.push('Court type is required');
+      if (!formData.numberOfCourts || formData.numberOfCourts < 1) errors.push('Number of courts must be at least 1');
+      
+      // Tiers
+      if (!formData.tiers || formData.tiers.length === 0) {
+        errors.push('At least one pricing tier is required');
+      }
+      
+      return {
+        valid: errors.length === 0,
+        errors: errors
+      };
+    }
+    
+    // Handle successful submission
+    function handleSubmitSuccess(result) {
+      document.getElementById('loadingOverlay').style.display = 'none';
+      
+      if (result.success) {
+        alert(result.message || 'Club information saved successfully!');
+        closeForm();
+      } else {
+        showError(result.message || 'An error occurred while saving the club information.');
+      }
+    }
+    
+    // Handle submission error
+    function handleSubmitError(error) {
+      document.getElementById('loadingOverlay').style.display = 'none';
+      showError('Error: ' + error);
+    }
+    
+    // Show error message
+    function showError(message) {
+      const errorContainer = document.getElementById('errorContainer');
+      errorContainer.innerHTML = message;
+      errorContainer.style.display = 'block';
+      
+      // Scroll to error
+      errorContainer.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    // Handle general error
+    function handleError(error) {
+      console.error('Error:', error);
+      showError('Error: ' + error);
+    }
+    
+    // Close the form
+    function closeForm() {
+      google.script.host.close();
+    }
+    
+    // Log debug information
+    function logDebugInfo() {
+      const debugInfo = document.getElementById('debugInfo');
+      if (debugInfo) {
+        const spreadsheetNameData = <?= JSON.stringify(spreadsheetNameData || {}) ?>;
+        const debugData = {
+          spreadsheetName: spreadsheetNameData,
+          clubNamesData: {
+            count: clubNamesData?.clubs?.length || 0,
+            lookupCount: Object.keys(clubNamesData?.lookupTable || {}).length || 0
+          },
+          formInitialized: isFormInitialized,
+          tierNamesCount: defaultTierNames.length,
+          timeOptionsCount: timeOptions.length
+        };
+        debugInfo.textContent = JSON.stringify(debugData, null, 2);
+      }
+    }
+    
+    /**
+     * Auto-populates the club name based on spreadsheet name
+     * This function is called during form initialization
+     */
+    function autoPopulateClubName() {
+      try {
+        console.log('Starting club name auto-population');
+        
+        // Get the spreadsheet name data that was passed from the server
+        const spreadsheetNameData = <?= JSON.stringify(spreadsheetNameData || {}) ?>;
+        
+        // Get club names data that was passed from the server
+        const clubNamesData = <?= JSON.stringify(clubNamesData || {clubs:[], lookupTable:{}, allColumnC:[]}) ?>;
+        
+        // Get matched club name if any (from server-side matching)
+        const serverMatchedClubName = <?= JSON.stringify(matchedClubName || null) ?>;
+        
+        // Reference to the club name field
+        const clubNameField = document.getElementById('clubName');
+        
+        if (!clubNameField) {
+          console.error('Could not find club name field with ID "clubName"');
+          return;
+        }
+        
+        // If we already have a server-side match, use it
+        if (serverMatchedClubName) {
+          console.log('Auto-populating with server-matched club name:', serverMatchedClubName);
+          // Remove any quotes that might be present
+          const cleanClubName = typeof serverMatchedClubName === 'string' 
+            ? serverMatchedClubName.replace(/^["']|["']$/g, '') 
+            : serverMatchedClubName;
+          
+          clubNameField.value = cleanClubName;
+          
+          // Trigger change event to update any dependent fields
+          triggerChangeEvent(clubNameField);
+          return;
+        }
+        
+        // Exit if missing required data
+        if (!spreadsheetNameData || !spreadsheetNameData.clean || !clubNamesData || !clubNamesData.lookupTable) {
+          console.log('Missing data required for auto-population:', {
+            spreadsheetNameData: !!spreadsheetNameData,
+            spreadsheetNameClean: spreadsheetNameData ? !!spreadsheetNameData.clean : false,
+            clubNamesData: !!clubNamesData,
+            lookupTable: clubNamesData ? !!clubNamesData.lookupTable : false
+          });
+          return;
+        }
+        
+        console.log('Attempting client-side matching for:', spreadsheetNameData.clean);
+        
+        // Try direct match first
+        let matchedClubName = clubNamesData.lookupTable[spreadsheetNameData.clean];
+        
+        // If no match, try case-insensitive match
+        if (!matchedClubName) {
+          const normalizedSheetName = spreadsheetNameData.clean.toLowerCase().trim();
+          matchedClubName = clubNamesData.lookupTable[normalizedSheetName];
+        }
+        
+        // If still no match, check if any lookup value is contained within the spreadsheet name
+        if (!matchedClubName && clubNamesData.allColumnC && clubNamesData.allColumnC.length > 0) {
+          const normalizedSheetName = spreadsheetNameData.clean.toLowerCase().trim();
+          
+          for (const lookupValue of clubNamesData.allColumnC) {
+            if (lookupValue && typeof lookupValue === 'string' && lookupValue.trim() !== '') {
+              const normalizedLookupValue = lookupValue.toLowerCase().trim();
+              
+              if (normalizedSheetName.includes(normalizedLookupValue)) {
+                matchedClubName = clubNamesData.lookupTable[lookupValue];
+                console.log(`Matched by containing lookup value: "${lookupValue}"`);
+                break;
+              }
+            }
+          }
+        }
+        
+        // If we found a match, set the value
+        if (matchedClubName) {
+          console.log('Auto-populated club name:', matchedClubName);
+          // Remove any quotes that might be present
+          const cleanClubName = typeof matchedClubName === 'string' 
+            ? matchedClubName.replace(/^["']|["']$/g, '') 
+            : matchedClubName;
+          
+          clubNameField.value = cleanClubName;
+          
+          // Trigger change event to update any dependent fields
+          triggerChangeEvent(clubNameField);
+        } else {
+          console.log('No matching club name found for:', spreadsheetNameData.clean);
+        }
+      } catch (error) {
+        console.error('Error in autoPopulateClubName:', error);
+      }
+    }
+    
+    /**
+     * Triggers a change event on an element
+     */
+    function triggerChangeEvent(element) {
+      if (!element) return;
+      
+      try {
+        const event = new Event('change', { bubbles: true });
+        element.dispatchEvent(event);
+      } catch (error) {
+        console.error('Error triggering change event:', error);
+      }
+    }
+    
+    // Initialize the form when the page loads with proper async handling
+    google.script.run
+      .withSuccessHandler(function(clubNames) {
+        clubNamesData = clubNames;
+        console.log('Club names data loaded:', clubNames?.clubs?.length || 0);
+        
+        // Now that we have club names data, we can initialize the form
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          initializeForm();
+        } else {
+          window.addEventListener('DOMContentLoaded', initializeForm);
+        }
+      })
+      .withFailureHandler(function(error) {
+        console.error('Error loading club names:', error);
+        // Still initialize the form even if club names couldn't be loaded
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          initializeForm();
+        } else {
+          window.addEventListener('DOMContentLoaded', initializeForm);
+        }
+      })
+      .getClubNames();
+  </script>
+</body>
+</html>
