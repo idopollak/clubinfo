@@ -146,13 +146,14 @@ function showClubSetupForm() {
     htmlTemplate.courtTypes = COURT_TYPES;
     htmlTemplate.isEditMode = isEditMode;
     
-    // Step 6: Attempt server-side club name matching (only for new clubs)
-    if (!isEditMode) {
-      console.log('📝 [showClubSetupForm] Step 5: Attempting club name match');
-      let matchedClubName = matchClubName(spreadsheetNameData, clubNamesData);
-      htmlTemplate.matchedClubName = matchedClubName;
-      console.log('✅ [showClubSetupForm] Matched club name:', matchedClubName || 'No match');
-    }
+  // Step 6: Attempt server-side club name matching (only for new clubs)
+  let matchedClubName = null;  // Declare outside the if block
+  if (!isEditMode) {
+  console.log('📝 [showClubSetupForm] Step 5: Attempting club name match');
+  matchedClubName = matchClubName(spreadsheetNameData, clubNamesData);
+  console.log('✅ [showClubSetupForm] Matched club name:', matchedClubName || 'No match');
+  }
+ // htmlTemplate.matchedClubName = matchedClubName;  // Move this outside
     
     // Step 7: Render and show dialog
     console.log('📝 [showClubSetupForm] Step 6: Rendering dialog');
