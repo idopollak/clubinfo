@@ -7,6 +7,11 @@
  * Created: December 2024
  * Platform: Google Apps Script (Google Sheets)
  * 
+ * LOCALIZATION: Configured for Israeli market
+ * - Work week: Sunday-Thursday
+ * - Weekend: Friday-Saturday
+ * - Time format: 24-hour (HH:MM)
+ * 
  * DESCRIPTION:
  * This script implements a database-driven approach for managing club information
  * with separate data storage and presentation layers, plus a Script Properties
@@ -77,6 +82,8 @@ const DB_SHEET_NAME = 'ClubData_DB';
 const PRESENTATION_SHEET_NAME = 'ClubInfo';
 const CHANGELOG_SHEET_NAME = 'ChangeLog';
 
+// Israeli work week: Sunday-Thursday are workdays, Friday-Saturday are weekend
+
 // ====================================================================
 // MENU INITIALIZATION (COMMENTED OUT FOR DEVELOPMENT)
 // ====================================================================
@@ -118,7 +125,7 @@ const CHANGELOG_SHEET_NAME = 'ChangeLog';
 function showClubSetupForm() {
   console.log('🟢 [showClubSetupForm] Starting form initialization');
   
-  let matchedClubName = null;  // ADD THIS LINE at the beginning
+  let matchedClubName = null;  // FIXED: Declare at function scope
   
   try {
     // Step 1: Get spreadsheet name for auto-population
@@ -148,14 +155,15 @@ function showClubSetupForm() {
     htmlTemplate.courtTypes = COURT_TYPES;
     htmlTemplate.isEditMode = isEditMode;
     
-  // Step 6: Attempt server-side club name matching (only for new clubs)
-  matchedClubName = null;  // Declare outside the if block
-  if (!isEditMode) {
-  console.log('📝 [showClubSetupForm] Step 5: Attempting club name match');
-  matchedClubName = matchClubName(spreadsheetNameData, clubNamesData);
-  console.log('✅ [showClubSetupForm] Matched club name:', matchedClubName || 'No match');
-  }
-  htmlTemplate.matchedClubName = matchedClubName;  // Move this outside
+    // Step 6: Attempt server-side club name matching (only for new clubs)
+    if (!isEditMode) {
+      console.log('📝 [showClubSetupForm] Step 5: Attempting club name match');
+      matchedClubName = matchClubName(spreadsheetNameData, clubNamesData);  // FIXED: No 'let' here
+      console.log('✅ [showClubSetupForm] Matched club name:', matchedClubName || 'No match');
+    }
+    
+    // FIXED: Always assign matchedClubName to template (outside if block)
+    htmlTemplate.matchedClubName = matchedClubName;
     
     // Step 7: Render and show dialog
     console.log('📝 [showClubSetupForm] Step 6: Rendering dialog');
@@ -420,6 +428,27 @@ function writeToDatabase(dbSheet, formData, processedData) {
   console.log('📝 [writeToDatabase] Writing operating hours');
   let hoursRow = 3;
   
+  // First, we need to resolve all copied days to get their actual hours
+  const resolvedHours = {};
+  
+  // First pass: Get hours for non-copied days
+  DAYS.forEach(day => {
+    const dayData = formData.operatingHours[day];
+    if (dayData && !dayData.copiedFrom) {
+      resolvedHours[day] = processedData.dailyHours[day] || 0;
+    }
+  });
+  
+  // Second pass: Resolve copied days
+  DAYS.forEach(day => {
+    const dayData = formData.operatingHours[day];
+    if (dayData && dayData.copiedFrom) {
+      resolvedHours[day] = resolvedHours[dayData.copiedFrom] || 0;
+    } else if (!dayData) {
+      resolvedHours[day] = 0;
+    }
+  });
+  
   DAYS.forEach(day => {
     const dayData = formData.operatingHours[day];
     if (!dayData) return;
@@ -435,7 +464,7 @@ function writeToDatabase(dbSheet, formData, processedData) {
       // Copied from another day
       dbSheet.getRange(hoursRow, 7).setValue(day);
       dbSheet.getRange(hoursRow, 8).setValue(dayData.copiedFrom);
-      dbSheet.getRange(hoursRow, 11).setValue(processedData.dailyHours[day] || 0);
+      dbSheet.getRange(hoursRow, 11).setValue(resolvedHours[day]);
       dbSheet.getRange(hoursRow, 12).setValue('COPY');
       hoursRow++;
     } else if (dayData.blocks && dayData.blocks.length > 0) {
@@ -699,6 +728,14 @@ function validateFormData(formData) {
   if (!formData.operatingHours) {
     errors.push('Operating hours are required');
   } else {
+    // Ensure all days have data
+    DAYS.forEach(day => {
+      if (!formData.operatingHours[day]) {
+        // Add default closed status for missing days
+        formData.operatingHours[day] = { isOpen: false };
+      }
+    });
+    
     // Check that at least one day is open
     const hasOpenDay = DAYS.some(day => {
       const dayData = formData.operatingHours[day];
@@ -751,6 +788,7 @@ function validateFormData(formData) {
  */
 function processOperatingHoursData(formData) {
   console.log('🔍 [processOperatingHoursData] Processing hours data');
+  console.log('📊 [processOperatingHoursData] Input data:', JSON.stringify(formData.operatingHours, null, 2));
   
   const result = {
     totalCourts: 0,
@@ -767,20 +805,20 @@ function processOperatingHoursData(formData) {
   });
   console.log(`📊 [processOperatingHoursData] Total courts: ${result.totalCourts}`);
   
-  // Process each day
+  // First pass: Process days with actual hours
   DAYS.forEach(day => {
     const dayData = formData.operatingHours[day];
     
-    if (!dayData || !dayData.isOpen) {
+    if (!dayData) {
+      // No data for this day - mark as closed
       result.dailyHours[day] = 0;
       result.operatingSummary[day] = 'Closed';
-    } else if (dayData.copiedFrom) {
-      // Handle copied days - calculate from source
-      const sourceDay = dayData.copiedFrom;
-      result.dailyHours[day] = result.dailyHours[sourceDay] || 0;
-      result.operatingSummary[day] = `Same as ${sourceDay}`;
-    } else if (dayData.blocks && dayData.blocks.length > 0) {
-      // Calculate hours from blocks
+    } else if (dayData.isOpen === false) {
+      // Explicitly closed
+      result.dailyHours[day] = 0;
+      result.operatingSummary[day] = 'Closed';
+    } else if (!dayData.copiedFrom && dayData.blocks && dayData.blocks.length > 0) {
+      // Calculate hours from blocks (not copied days yet)
       let dayMinutes = 0;
       const timeRanges = [];
       
@@ -798,11 +836,52 @@ function processOperatingHoursData(formData) {
       result.dailyHours[day] = dayMinutes / 60;
       result.operatingSummary[day] = timeRanges.join(', ');
     }
+  });
+  
+  // Second pass: Process copied days (with chain resolution)
+  // We may need multiple passes to resolve chains like: Tue→Mon, Wed→Tue
+  let maxPasses = 7; // Prevent infinite loops
+  let passes = 0;
+  let hasUnresolvedCopies = true;
+  
+  while (hasUnresolvedCopies && passes < maxPasses) {
+    hasUnresolvedCopies = false;
+    passes++;
     
+    DAYS.forEach(day => {
+      const dayData = formData.operatingHours[day];
+      
+      if (dayData && dayData.copiedFrom && result.dailyHours[day] === undefined) {
+        const sourceDay = dayData.copiedFrom;
+        if (result.dailyHours[sourceDay] !== undefined) {
+          // Source has been resolved, we can copy
+          result.dailyHours[day] = result.dailyHours[sourceDay];
+          result.operatingSummary[day] = `Same as ${sourceDay}`;
+        } else {
+          // Source not yet resolved, need another pass
+          hasUnresolvedCopies = true;
+        }
+      }
+    });
+  }
+  
+  // Final safety check - any unresolved days default to 0
+  DAYS.forEach(day => {
+    if (result.dailyHours[day] === undefined) {
+      console.warn(`⚠️ [processOperatingHoursData] Could not resolve hours for ${day}, defaulting to 0`);
+      result.dailyHours[day] = 0;
+      result.operatingSummary[day] = 'Closed';
+    }
+  });
+  
+  // Calculate weekly total
+  DAYS.forEach(day => {
     result.weeklyHours += result.dailyHours[day] || 0;
   });
   
   console.log(`📊 [processOperatingHoursData] Weekly hours: ${result.weeklyHours}`);
+  console.log('📊 [processOperatingHoursData] Daily hours breakdown:', result.dailyHours);
+  console.log('📊 [processOperatingHoursData] Operating summary:', result.operatingSummary);
   return result;
 }
 
@@ -1593,6 +1672,7 @@ const ClubDataService = {
       const hoursData = dbSheet.getRange('G3:L200').getValues();
       let weeklyHours = 0;
       
+      // Initialize all days
       DAYS.forEach(day => {
         operatingHours[day] = {
           blocks: [],
